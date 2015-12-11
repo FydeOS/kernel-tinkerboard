@@ -322,8 +322,10 @@
 	cap-sd-highspeed;
 	sd-uhs-sdr50;
 	sd-uhs-sdr104;
+	sdr104-clk-delay = <5>;
 	keep-power-in-suspend;
 	enable-sdio-wakeup;
+	cap-sdio-irq;
 	vmmc-supply = <&sdio_fixed_3v3>;
 	vqmmc-supply = <&mt6397_vgp3_reg>;
 	non-removable;
@@ -487,21 +489,21 @@
 				 <MT8173_PIN_24_MSDC3_DAT2__FUNC_MSDC3_DAT2>,
 				 <MT8173_PIN_25_MSDC3_DAT3__FUNC_MSDC3_DAT3>;
 			input-enable;
-			drive-strength = <MTK_DRIVE_10mA>;
+			drive-strength = <MTK_DRIVE_8mA>;
 			bias-pull-up = <MTK_PUPD_SET_R1R0_10>;
 		};
 
 		pins_cmd {
 			pinmux = <MT8173_PIN_27_MSDC3_CMD__FUNC_MSDC3_CMD>;
 			input-enable;
-			drive-strength = <MTK_DRIVE_12mA>;
+			drive-strength = <MTK_DRIVE_8mA>;
 			bias-pull-up = <MTK_PUPD_SET_R1R0_10>;
 		};
 
 		pins_clk {
 			pinmux = <MT8173_PIN_26_MSDC3_CLK__FUNC_MSDC3_CLK>;
 			bias-pull-down;
-			drive-strength = <MTK_DRIVE_10mA>;
+			drive-strength = <MTK_DRIVE_8mA>;
 		};
 
 		pins_pdn {
@@ -570,20 +572,20 @@
 				 <MT8173_PIN_24_MSDC3_DAT2__FUNC_MSDC3_DAT2>,
 				 <MT8173_PIN_25_MSDC3_DAT3__FUNC_MSDC3_DAT3>;
 			input-enable;
-			drive-strength = <MTK_DRIVE_10mA>;
+			drive-strength = <MTK_DRIVE_8mA>;
 			bias-pull-up = <MTK_PUPD_SET_R1R0_10>;
 		};
 
 		pins_cmd {
 			pinmux = <MT8173_PIN_27_MSDC3_CMD__FUNC_MSDC3_CMD>;
 			input-enable;
-			drive-strength = <MTK_DRIVE_12mA>;
+			drive-strength = <MTK_DRIVE_8mA>;
 			bias-pull-up = <MTK_PUPD_SET_R1R0_10>;
 		};
 
 		pins_clk {
 			pinmux = <MT8173_PIN_26_MSDC3_CLK__FUNC_MSDC3_CLK>;
-			drive-strength = <MTK_DRIVE_10mA>;
+			drive-strength = <MTK_DRIVE_8mA>;
 			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
 		};
 	};

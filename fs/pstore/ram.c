@@ -34,6 +34,7 @@
 #include <linux/slab.h>
 #include <linux/compiler.h>
 #include <linux/pstore_ram.h>
+#include <linux/of.h>
 #include <linux/of_address.h>
 
 #define RAMOOPS_KERNMSG_HDR "===="
@@ -516,51 +517,129 @@ void notrace ramoops_console_write_buf(const char *buf, size_t size)
 	persistent_ram_write(cxt->cprz, buf, size);
 }
 
-#ifdef CONFIG_OF
-static struct ramoops_platform_data * __init
-of_ramoops_platform_data(struct device *dev)
+static int ramoops_parse_dt_compat(struct platform_device *pdev,
+				   struct ramoops_platform_data *pdata)
 {
-	struct device_node *node = dev->of_node;
-	struct ramoops_platform_data *pdata;
+	struct device_node *node = pdev->dev.of_node;
 	const __be32 *addrp;
 	u64 size;
 	u32 val;
 
-	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
-	if (pdata == NULL)
-		return NULL;
-
 	addrp = of_get_address(node, 0, &size, NULL);
-	if (addrp == NULL)
-		return NULL;
+	if (!addrp)
+		return -ENODEV;
 	pdata->mem_address = of_translate_address(node, addrp);
 	pdata->mem_size = size;
 
 	if (of_property_read_u32(node, "record-size", &val))
-		return NULL;
-	pdata->record_size = val;
+		return -ENODEV;
 
-	/* TODO(bfreed): add a console-size of property. */
+	pdata->record_size = val;
 	pdata->console_size = val;
 	pdata->pmsg_size = val;
 
 	if (of_get_property(node, "dump-oops", NULL))
 		pdata->dump_oops = 1;
 
-	return pdata;
+	return 0;
 }
-#else
-#define of_ramoops_platform_data(dev) NULL
-#endif
+
+static int ramoops_parse_dt_size(struct platform_device *pdev,
+				 const char *propname, u32 *value)
+{
+	u32 val32 = 0;
+	int ret;
+
+	ret = of_property_read_u32(pdev->dev.of_node, propname, &val32);
+	if (ret < 0 && ret != -EINVAL) {
+		dev_err(&pdev->dev, "failed to parse property %s: %d\n",
+			propname, ret);
+		return ret;
+	}
+
+	if (val32 > INT_MAX) {
+		dev_err(&pdev->dev, "%s %u > INT_MAX\n", propname, val32);
+		return -EOVERFLOW;
+	}
+
+	*value = val32;
+	return 0;
+}
+
+static int ramoops_parse_dt(struct platform_device *pdev,
+			    struct ramoops_platform_data *pdata)
+{
+	struct device_node *of_node = pdev->dev.of_node;
+	struct device_node *mem_region;
+	struct resource res;
+	u32 value;
+	int ret;
+
+	dev_dbg(&pdev->dev, "using Device Tree\n");
+
+	mem_region = of_parse_phandle(of_node, "memory-region", 0);
+	if (!mem_region) {
+		dev_info(&pdev->dev,
+			 "no memory-region phandle, trying compatibility mode\n");
+		ret = ramoops_parse_dt_compat(pdev, pdata);
+		if (ret)
+			dev_err(&pdev->dev,
+				"failed to parse backward compatible pstore data\n");
+		return ret;
+	}
+
+	ret = of_address_to_resource(mem_region, 0, &res);
+	of_node_put(mem_region);
+	if (ret) {
+		dev_err(&pdev->dev,
+			"failed to translate memory-region to resource: %d\n",
+			ret);
+		return ret;
+	}
+
+	pdata->mem_size = resource_size(&res);
+	pdata->mem_address = res.start;
+	pdata->mem_type = of_property_read_bool(of_node, "unbuffered");
+	pdata->dump_oops = !of_property_read_bool(of_node, "no-dump-oops");
+
+#define parse_size(name, field) {					\
+		ret = ramoops_parse_dt_size(pdev, name, &value);	\
+		if (ret < 0)						\
+			return ret;					\
+		field = value;						\
+	}
+
+	parse_size("record-size", pdata->record_size);
+	parse_size("console-size", pdata->console_size);
+	parse_size("ftrace-size", pdata->ftrace_size);
+	parse_size("pmsg-size", pdata->pmsg_size);
+	parse_size("ecc-size", pdata->ecc_info.ecc_size);
+
+#undef parse_size
+
+	return 0;
+}
 
 static int ramoops_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct ramoops_platform_data *pdata = pdev->dev.platform_data;
+	struct ramoops_platform_data *pdata = dev->platform_data;
 	struct ramoops_context *cxt = &oops_cxt;
 	size_t dump_mem_sz;
 	phys_addr_t paddr;
 	int err = -EINVAL;
+
+	if (dev_of_node(dev) && !pdata) {
+		pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
+		if (!pdata) {
+			err = -ENOMEM;
+			goto fail_out;
+		}
+
+		err = ramoops_parse_dt(pdev, pdata);
+		if (err < 0)
+			goto fail_out;
+	}
 
 	/* Only a single ramoops area allowed at a time, so fail extra
 	 * probes.
@@ -568,12 +647,10 @@ static int ramoops_probe(struct platform_device *pdev)
 	if (cxt->max_dump_cnt)
 		goto fail_out;
 
-	if (!pdata && pdev->dev.of_node) {
-		pdata = of_ramoops_platform_data(&pdev->dev);
-		if (!pdata) {
-			pr_err("Invalid ramoops device tree data\n");
-			goto fail_out;
-		}
+	/* Make sure we didn't get bogus platform data pointer. */
+	if (!pdata) {
+		pr_err("NULL platform data\n");
+		goto fail_out;
 	}
 
 	if (!pdata->mem_size || (!pdata->record_size && !pdata->console_size &&
@@ -708,19 +785,19 @@ static int ramoops_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_OF
-static const struct of_device_id ramoops_of_match[] = {
-	{ .compatible = "ramoops", },
-	{ },
+static const struct of_device_id dt_match[] = {
+	{ .compatible = "ramoops" },
+	{}
 };
-MODULE_DEVICE_TABLE(of, ramoops_of_match);
+MODULE_DEVICE_TABLE(of, dt_match);
 #endif
 
 static struct platform_driver ramoops_driver = {
 	.probe		= ramoops_probe,
 	.remove		= ramoops_remove,
 	.driver		= {
-		.name	= "ramoops",
-		.of_match_table = of_match_ptr(ramoops_of_match),
+		.name		= "ramoops",
+		.of_match_table	= of_match_ptr(dt_match),
 	},
 };
 

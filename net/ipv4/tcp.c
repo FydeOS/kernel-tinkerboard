@@ -3268,12 +3268,12 @@ int tcp_nuke_addr(struct net *net, struct sockaddr *addr)
 	unsigned int bucket;
 
 	struct in_addr *in;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	struct in6_addr *in6;
+#if defined(CONFIG_IPV6)
+	struct in6_addr *in6 = NULL;
 #endif
 	if (family == AF_INET) {
 		in = &((struct sockaddr_in *)addr)->sin_addr;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+#if defined(CONFIG_IPV6)
 	} else if (family == AF_INET6) {
 		in6 = &((struct sockaddr_in6 *)addr)->sin6_addr;
 #endif

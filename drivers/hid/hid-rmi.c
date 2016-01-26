@@ -1208,9 +1208,6 @@ static int rmi_input_configured(struct hid_device *hdev, struct hid_input *hi)
 
 	data->input = input;
 
-	input->inhibit = rmi_inhibit;
-	input->uninhibit = rmi_uninhibit;
-
 	hid_dbg(hdev, "Opening low level driver\n");
 	ret = hid_hw_open(hdev);
 	if (ret)
@@ -1269,6 +1266,9 @@ static int rmi_input_configured(struct hid_device *hdev, struct hid_input *hi)
 		if (data->button_count == 1)
 			__set_bit(INPUT_PROP_BUTTONPAD, input->propbit);
 	}
+
+	input->inhibit = rmi_inhibit;
+	input->uninhibit = rmi_uninhibit;
 
 	set_bit(RMI_STARTED, &data->flags);
 

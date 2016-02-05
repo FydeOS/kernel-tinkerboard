@@ -200,6 +200,10 @@
 	mediatek,audio-codec = <&rt5650 &rt5676>;
 };
 
+&thermal {
+	bank1-supply = <&mt6311_vcpu_reg>;
+};
+
 &trackpad {
 	interrupts = <124 IRQ_TYPE_LEVEL_LOW>;
 };

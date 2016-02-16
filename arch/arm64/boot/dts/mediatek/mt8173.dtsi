@@ -58,6 +58,8 @@
 		#cooling-min-level = <0>;
 		#cooling-max-level = <7>;
 		dynamic-power-coefficient = <263>;
+		sched-energy-costs = <&MT8173_TURBO_CPU_COST_0
+				      &MT8173_TURBO_CLUSTER_COST_0>;
 	};
 
 	cpu1: cpu@1 {
@@ -80,6 +82,8 @@
 		#cooling-min-level = <0>;
 		#cooling-max-level = <7>;
 		dynamic-power-coefficient = <263>;
+		sched-energy-costs = <&MT8173_TURBO_CPU_COST_0
+				      &MT8173_TURBO_CLUSTER_COST_0>;
 	};
 
 	cpu2: cpu@100 {
@@ -102,6 +106,8 @@
 		#cooling-min-level = <0>;
 		#cooling-max-level = <7>;
 		dynamic-power-coefficient = <530>;
+		sched-energy-costs = <&MT8173_TURBO_CPU_COST_1
+				      &MT8173_TURBO_CLUSTER_COST_1>;
 	};
 
 	cpu3: cpu@101 {
@@ -124,7 +130,11 @@
 		#cooling-min-level = <0>;
 		#cooling-max-level = <7>;
 		dynamic-power-coefficient = <530>;
+		sched-energy-costs = <&MT8173_TURBO_CPU_COST_1
+				      &MT8173_TURBO_CLUSTER_COST_1>;
 	};
+
+	/include/ "mt817x-sched-energy.dtsi"
 };
 
 &cpu_thermal {

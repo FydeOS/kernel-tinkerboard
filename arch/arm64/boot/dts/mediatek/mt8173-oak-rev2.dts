@@ -61,6 +61,7 @@
 		1183000 1028000
 		1404000 1083000
 	>;
+	sched-energy-costs = <&MT8173_CPU_COST_0 &MT8173_CLUSTER_COST_0>;
 };
 
 &cpu1 {
@@ -72,6 +73,7 @@
 		1183000 1028000
 		1404000 1083000
 	>;
+	sched-energy-costs = <&MT8173_CPU_COST_0 &MT8173_CLUSTER_COST_0>;
 };
 
 &cpu2 {
@@ -84,6 +86,7 @@
 		1612000 1049000
 		1807000 1089000
 	>;
+	sched-energy-costs = <&MT8173_CPU_COST_1 &MT8173_CLUSTER_COST_1>;
 };
 
 &cpu3 {
@@ -96,6 +99,7 @@
 		1612000 1049000
 		1807000 1089000
 	>;
+	sched-energy-costs = <&MT8173_CPU_COST_1 &MT8173_CLUSTER_COST_1>;
 };
 
 &gpio_keys {

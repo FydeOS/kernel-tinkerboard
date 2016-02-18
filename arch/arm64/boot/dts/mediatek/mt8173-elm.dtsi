@@ -85,6 +85,36 @@
 
 &i2c0 {
 	/delete-node/audio-codec@57;
+
+	ps8640: edp-bridge@8 {
+		compatible = "parade,ps8640";
+		reg = <0x8>;
+		sleep-gpios = <&pio 127 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&pio 115 GPIO_ACTIVE_HIGH>;
+		mode-sel-gpios = <&pio 92 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ps8640_pins>;
+		vdd12-supply = <&ps8640_fixed_1v2>;
+		vdd33-supply = <&mt6397_vgp2_reg>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+
+			ps8640_in: endpoint {
+				remote-endpoint = <&dsi0_out>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+
+			ps8640_out: endpoint {
+				remote-endpoint = <&panel_in>;
+			};
+		};
+	};
 };
 
 &i2c3 {
@@ -116,6 +146,10 @@
 &pio {
 	/delete-node/anx7814_pins;
 	/delete-node/rt5514_irq;
+};
+
+&ps8640_fixed_1v2 {
+	regulator-enable-ramp-delay = <2000>;
 };
 
 &rt5650 {

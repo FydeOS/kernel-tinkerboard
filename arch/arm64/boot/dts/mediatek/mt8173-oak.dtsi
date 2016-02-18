@@ -110,6 +110,42 @@
 		};
 	};
 
+	panel: panel {
+		compatible = "lg,lp120up1";
+		power-supply = <&panel_fixed_3v3>;
+		ddc-i2c-bus = <&i2c4>;
+		backlight = <&backlight_lcd>;
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&ps8640_out>;
+			};
+		};
+	};
+
+	panel_fixed_3v3: regulator@1 {
+		compatible = "regulator-fixed";
+		regulator-name = "PANEL_3V3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		enable-active-high;
+		gpio = <&pio 41 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&panel_fixed_pins>;
+	};
+
+	ps8640_fixed_1v2: regulator@2 {
+		compatible = "regulator-fixed";
+		regulator-name = "PS8640_1V2";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		enable-active-high;
+		regulator-boot-on;
+		gpio = <&pio 30 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ps8640_fixed_pins>;
+	};
+
 	sdio_fixed_3v3: fixedregulator@0 {
 		compatible = "regulator-fixed";
 		regulator-name = "3V3";
@@ -155,6 +191,22 @@
 
 &dpi0 {
 	status = "okay";
+};
+
+&dsi0 {
+	status = "okay";
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@1 {
+			reg = <1>;
+
+			dsi0_out: endpoint {
+				remote-endpoint = <&ps8640_in>;
+			};
+		};
+	};
 };
 
 &gpu {
@@ -304,6 +356,40 @@
 		reg = <0x15>;
 		wakeup-source;
 	};
+
+	ps8640: edp-bridge@18 {
+		compatible = "parade,ps8640";
+		reg = <0x18>;
+		sleep-gpios = <&pio 127 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&pio 115 GPIO_ACTIVE_HIGH>;
+		mode-sel-gpios = <&pio 92 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ps8640_pins>;
+		vdd12-supply = <&ps8640_fixed_1v2>;
+		vdd33-supply = <&mt6397_vgp2_reg>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+
+			ps8640_in: endpoint {
+				remote-endpoint = <&dsi0_out>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+
+			ps8640_out: endpoint {
+				remote-endpoint = <&panel_in>;
+			};
+		};
+	};
+};
+
+&mipi_tx0 {
+	status = "okay";
 };
 
 &mmc0 {
@@ -646,6 +732,26 @@
 			input-enable;
 			drive-strength = <MTK_DRIVE_4mA>;
 			bias-pull-up;
+		};
+	};
+
+	panel_fixed_pins: panel_fixed_pins {
+		pins1 {
+			pinmux = <MT8173_PIN_41_CMMCLK__FUNC_GPIO41>;
+		};
+	};
+
+	ps8640_pins: ps8640_pins {
+		pins1 {
+			pinmux = <MT8173_PIN_92_PCM_CLK__FUNC_GPIO92>,
+				 <MT8173_PIN_115_URTS0__FUNC_GPIO115>,
+				 <MT8173_PIN_127_LCM_RST__FUNC_GPIO127>;
+		};
+	};
+
+	ps8640_fixed_pins: ps8640_fixed_pins {
+		pins1 {
+			pinmux = <MT8173_PIN_30_URTS2__FUNC_GPIO30>;
 		};
 	};
 

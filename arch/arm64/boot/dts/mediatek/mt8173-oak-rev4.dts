@@ -181,6 +181,10 @@
 	};
 };
 
+&panel {
+	compatible = "innolux,n116bge";
+};
+
 &pio {
 	/delete-node/gpio_keys_node;
 
@@ -190,6 +194,28 @@
 			bias-pull-down;
 		};
 	};
+};
+
+&ps8640_pins {
+	pins1 {
+		pinmux = <MT8173_PIN_92_PCM_CLK__FUNC_GPIO92>,
+			 <MT8173_PIN_115_URTS0__FUNC_GPIO115>,
+			 <MT8173_PIN_116_UCTS0__FUNC_GPIO116>;
+	};
+};
+
+&ps8640_fixed_1v2 {
+	gpio = <&pio 89 GPIO_ACTIVE_HIGH>;
+};
+
+&ps8640_fixed_pins {
+	pins1 {
+		pinmux = <MT8173_PIN_89_SRCLKENAI2__FUNC_GPIO89>;
+	};
+};
+
+&ps8640 {
+	sleep-gpios = <&pio 116 GPIO_ACTIVE_HIGH>;
 };
 
 /delete-node/&rt5514;

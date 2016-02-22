@@ -59,7 +59,7 @@
 		reg = <0x001>;
 		enable-method = "psci";
 		cpu-idle-states = <&CPU_SLEEP_0>;
-		operating-points-v2 = <&cluster1_opp>;
+		operating-points-v2 = <&cluster0_opp>;
 		#cooling-cells = <2>;
 		#cooling-min-level = <0>;
 		#cooling-max-level = <7>;
@@ -89,7 +89,7 @@
 		reg = <0x101>;
 		enable-method = "psci";
 		cpu-idle-states = <&CPU_SLEEP_0>;
-		operating-points-v2 = <&cluster0_opp>;
+		operating-points-v2 = <&cluster1_opp>;
 		#cooling-cells = <2>;
 		#cooling-min-level = <0>;
 		#cooling-max-level = <7>;

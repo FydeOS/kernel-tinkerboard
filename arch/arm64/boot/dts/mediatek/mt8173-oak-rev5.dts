@@ -41,5 +41,5 @@
 
 &sound {
 	compatible = "mediatek,mt8173-rt5650";
-	mediatek,audio-codec = <&rt5650>;
+	mediatek,audio-codec = <&rt5650 &hdmi0>;
 };

@@ -55,6 +55,7 @@ struct mtk_drm_crtc {
 	int				cmdq_event;
 	struct work_struct		cmdq_work;
 	struct mtk_plane_pending_state	cmdq_pending[OVL_LAYER_NR];
+	struct mutex			cmdq_pending_lock;
 
 	struct work_struct		unreference_work;
 	struct drm_framebuffer		*new_fb[OVL_LAYER_NR];
@@ -383,6 +384,7 @@ static void mtk_drm_crtc_atomic_flush(struct drm_crtc *crtc,
 	struct mtk_crtc_state *state;
 	unsigned int i;
 
+	mutex_lock(&mtk_crtc->cmdq_pending_lock);
 	if (mtk_crtc->event)
 		mtk_crtc->pending_needs_vblank = true;
 
@@ -398,7 +400,6 @@ static void mtk_drm_crtc_atomic_flush(struct drm_crtc *crtc,
 		}
 	}
 
-	mtk_crtc->cmdq_flush = true;
 	state = to_mtk_crtc_state(mtk_crtc->base.state);
 
 	if (state->pending_config) {
@@ -423,6 +424,8 @@ static void mtk_drm_crtc_atomic_flush(struct drm_crtc *crtc,
 			plane_state->pending.config = false;
 		}
 	}
+	mtk_crtc->cmdq_flush = true;
+	mutex_unlock(&mtk_crtc->cmdq_pending_lock);
 }
 
 static void mtk_drm_crtc_enable(struct drm_crtc *crtc)
@@ -501,7 +504,7 @@ static void mtk_drm_crtc_atomic_begin(struct drm_crtc *crtc,
 	}
 }
 
-void mtk_drm_crtc_commit_cmdq(struct drm_crtc *crtc)
+static void mtk_drm_crtc_commit_cmdq(struct drm_crtc *crtc)
 {
 	struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
 	struct mtk_drm_private *priv = mtk_crtc->base.dev->dev_private;
@@ -511,6 +514,7 @@ void mtk_drm_crtc_commit_cmdq(struct drm_crtc *crtc)
 	struct cmdq_rec *cmdq_handle;
 	unsigned int i;
 
+	mutex_lock(&mtk_crtc->cmdq_pending_lock);
 	mtk_crtc->cmdq_busy = true;
 	if (mtk_crtc->pending_needs_vblank) {
 		mtk_crtc->cmdq_vblank_event = mtk_crtc->event;
@@ -559,6 +563,8 @@ void mtk_drm_crtc_commit_cmdq(struct drm_crtc *crtc)
 				      crtc, NULL, NULL);
 	cmdq_rec_destroy(cmdq_handle);
 
+	mtk_crtc->cmdq_flush = false;
+	mutex_unlock(&mtk_crtc->cmdq_pending_lock);
 }
 
 static void mtk_drm_crtc_cmdq_work(struct work_struct *work)
@@ -567,7 +573,6 @@ static void mtk_drm_crtc_cmdq_work(struct work_struct *work)
 			struct mtk_drm_crtc, cmdq_work);
 
 	mtk_drm_crtc_commit_cmdq(&mtk_crtc->base);
-	mtk_crtc->cmdq_flush = false;
 }
 
 static void mtk_drm_crtc_unreference_work(struct work_struct *work)
@@ -728,6 +733,7 @@ int mtk_drm_crtc_create(struct drm_device *drm_dev,
 	priv->crtc[pipe] = &mtk_crtc->base;
 	priv->num_pipes++;
 
+	mutex_init(&mtk_crtc->cmdq_pending_lock);
 	init_completion(&mtk_crtc->completion);
 	complete(&mtk_crtc->completion);
 

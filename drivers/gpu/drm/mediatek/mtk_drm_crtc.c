@@ -344,7 +344,6 @@ err_pm_runtime_put:
 
 static void mtk_crtc_ddp_hw_fini(struct mtk_drm_crtc *mtk_crtc)
 {
-	struct drm_crtc *crtc = &mtk_crtc->base;
 	struct drm_device *drm = mtk_crtc->base.dev;
 	struct mtk_drm_private *priv = mtk_crtc->base.dev->dev_private;
 	struct device *gce_dev = &priv->gce_pdev->dev;
@@ -355,8 +354,7 @@ static void mtk_crtc_ddp_hw_fini(struct mtk_drm_crtc *mtk_crtc)
 	cmdq_rec_create(gce_dev, mtk_crtc->cmdq_engine_flag, &cmdq_handle);
 	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++)
 		mtk_ddp_comp_stop(mtk_crtc->ddp_comp[i], cmdq_handle);
-	cmdq_rec_flush_async_callback(cmdq_handle, ddp_cmdq_cb,
-				      crtc, NULL, NULL);
+	cmdq_rec_flush(cmdq_handle);
 	cmdq_rec_destroy(cmdq_handle);
 
 	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++)

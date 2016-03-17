@@ -19,11 +19,49 @@
 		compatible = "hdmi-connector";
 		label = "hdmi";
 		type = "a";
-		ddc-i2c-bus = <&hdmiddc0>;
 
 		port {
 			hdmi_connector_in: endpoint {
-				remote-endpoint = <&hdmi0_out>;
+				remote-endpoint = <&hdmi_mux_out_hdmi>;
+			};
+		};
+	};
+
+	hdmi_mux: hdmi_mux {
+		compatible = "gpio-display-mux";
+		status = "okay";
+		detect-gpios = <&pio 36 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&hdmi_mux_pins>;
+		ddc-i2c-bus = <&hdmiddc0>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 { /* input */
+				reg = <0>;
+
+				hdmi_mux_in: endpoint {
+					remote-endpoint = <&hdmi0_out>;
+				};
+			};
+
+			port@1 { /* output */
+				reg = <1>;
+
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				hdmi_mux_out_anx: endpoint@0 {
+					reg = <0>;
+					remote-endpoint = <&anx7688_in>;
+				};
+
+				hdmi_mux_out_hdmi: endpoint@1 {
+					reg = <1>;
+					remote-endpoint = <&hdmi_connector_in>;
+				};
 			};
 		};
 	};
@@ -61,6 +99,18 @@
 		google,remote-bus = <1>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+
+		anx7688: anx7688@2c {
+			compatible = "analogix,anx7688";
+			status = "okay";
+			reg = <0x2c>;
+
+			port {
+				anx7688_in: endpoint {
+					remote-endpoint = <&hdmi_mux_out_anx>;
+				};
+			};
+		};
 	};
 };
 
@@ -68,7 +118,7 @@
 	ports {
 		port@1 {
 			hdmi0_out: endpoint {
-				remote-endpoint = <&hdmi_connector_in>;
+				remote-endpoint = <&hdmi_mux_in>;
 			};
 		};
 	};
@@ -146,6 +196,12 @@
 &pio {
 	/delete-node/anx7814_pins;
 	/delete-node/rt5514_irq;
+
+	hdmi_mux_pins: hdmi_mux_pins {
+		pins1 {
+			pinmux = <MT8173_PIN_36_DAISYNC__FUNC_GPIO36>;
+		};
+	};
 };
 
 &ps8640_fixed_1v2 {

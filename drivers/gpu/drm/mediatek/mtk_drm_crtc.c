@@ -59,6 +59,7 @@ struct mtk_drm_crtc {
 
 	struct work_struct		unreference_work;
 	struct drm_framebuffer		*new_fb[OVL_LAYER_NR];
+	struct drm_framebuffer		*onscreen_fb[OVL_LAYER_NR];
 	struct drm_framebuffer		*old_fb[OVL_LAYER_NR];
 
 	struct drm_plane		planes[OVL_LAYER_NR];
@@ -234,7 +235,6 @@ static int ddp_cmdq_cb(void *data)
 	struct drm_crtc *crtc = data;
 	struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
 
-	mtk_crtc->cmdq_busy = false;
 	complete(&mtk_crtc->completion);
 
 	if (mtk_crtc->cmdq_needs_event) {
@@ -415,10 +415,20 @@ static void mtk_drm_crtc_atomic_flush(struct drm_crtc *crtc,
 		plane_state = to_mtk_plane_state(plane->state);
 		if (plane_state->pending.config) {
 			mtk_crtc->cmdq_pending[i] = plane_state->pending;
-			if (mtk_crtc->new_fb[i])
-				mtk_crtc->old_fb[i] = mtk_crtc->new_fb[i];
-			if (plane_state->base.fb != mtk_crtc->new_fb[i])
+
+			if (plane_state->base.fb != mtk_crtc->new_fb[i]) {
+				/* If replacing a pending FB, unref it now. */
+				if (mtk_crtc->new_fb[i])
+					drm_framebuffer_unreference(
+							mtk_crtc->new_fb[i]);
+
+				if (plane_state->base.fb)
+					drm_framebuffer_reference(
+							plane_state->base.fb);
+
 				mtk_crtc->new_fb[i] = plane_state->base.fb;
+			}
+
 			plane_state->pending.config = false;
 		}
 	}
@@ -545,6 +555,17 @@ static void mtk_drm_crtc_commit_cmdq(struct drm_crtc *crtc)
 
 	for (i = 0; i < OVL_LAYER_NR; i++) {
 		if (mtk_crtc->cmdq_pending[i].config) {
+			/*
+			 * There should only be one cmdq_rec active at a time,
+			 * so there should not be any old FB that has not yet
+			 * been unreferenced.
+			 */
+			WARN_ON(mtk_crtc->old_fb[i]);
+
+			mtk_crtc->old_fb[i] = mtk_crtc->onscreen_fb[i];
+			mtk_crtc->onscreen_fb[i] = mtk_crtc->new_fb[i];
+			mtk_crtc->new_fb[i] = NULL;
+
 			mtk_ddp_comp_layer_config(ovl, i,
 						  &mtk_crtc->cmdq_pending[i],
 						  cmdq_handle);
@@ -585,6 +606,8 @@ static void mtk_drm_crtc_unreference_work(struct work_struct *work)
 			mtk_crtc->old_fb[i] = NULL;
 		}
 	}
+
+	mtk_crtc->cmdq_busy = false;
 }
 
 static const struct drm_crtc_funcs mtk_crtc_funcs = {

@@ -130,7 +130,6 @@ static void mtk_plane_atomic_update(struct drm_plane *plane,
 		return;
 
 	gem = mtk_fb_get_gem_obj(fb);
-	drm_framebuffer_reference(fb);
 	mtk_gem = to_mtk_gem_obj(gem);
 	addr = mtk_gem->dma_addr;
 	pitch = fb->pitches[0];

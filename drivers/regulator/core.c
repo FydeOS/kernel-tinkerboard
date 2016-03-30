@@ -4013,12 +4013,11 @@ regulator_register(const struct regulator_desc *regulator_desc,
 	}
 
 	rdev_init_debugfs(rdev);
+	mutex_unlock(&regulator_list_mutex);
 
 	/* try to resolve regulators supply since a new one was registered */
 	class_for_each_device(&regulator_class, NULL, NULL,
 			      regulator_register_resolve_supply);
-out:
-	mutex_unlock(&regulator_list_mutex);
 	kfree(config);
 	return rdev;
 
@@ -4027,7 +4026,6 @@ unset_supplies:
 	regulator_ena_gpio_free(rdev);
 	device_unregister(&rdev->dev);
 	/* device core frees rdev */
-	rdev = ERR_PTR(ret);
 	goto out;
 
 wash:
@@ -4035,8 +4033,10 @@ wash:
 	regulator_ena_gpio_free(rdev);
 clean:
 	kfree(rdev);
-	rdev = ERR_PTR(ret);
-	goto out;
+out:
+	mutex_unlock(&regulator_list_mutex);
+	kfree(config);
+	return ERR_PTR(ret);
 }
 EXPORT_SYMBOL_GPL(regulator_register);
 

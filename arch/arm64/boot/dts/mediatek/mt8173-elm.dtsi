@@ -160,8 +160,8 @@
 
 &sound {
 	compatible = "mediatek,mt8173-rt5650";
-	mediatek,audio-codec = <&rt5650>;
 	mediatek,mclk = <1>;
+	mediatek,audio-codec = <&rt5650 &hdmi0>;
 	codec-capture {
 		sound-dai = <&rt5650 1>;
 	};

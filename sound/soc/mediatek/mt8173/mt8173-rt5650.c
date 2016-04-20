@@ -18,6 +18,7 @@
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
 #include <sound/soc.h>
+#include <sound/hdmi-codec.h>
 #include <sound/jack.h>
 #include "../../codecs/rt5645.h"
 
@@ -166,6 +167,25 @@ static struct snd_soc_dai_link_component mt8173_rt5650_codecs[] = {
 	},
 };
 
+static struct snd_soc_jack mt8173_hdmi_card_jack;
+
+static int mt8173_hdmi_init(struct snd_soc_pcm_runtime *runtime)
+{
+	struct snd_soc_card *card = runtime->card;
+	struct snd_soc_codec *codec = runtime->codec;
+	int ret;
+
+	/* enable jack detection */
+	ret = snd_soc_card_jack_new(card, "HDMI Jack", SND_JACK_LINEOUT,
+				    &mt8173_hdmi_card_jack, NULL, 0);
+	if (ret) {
+		dev_err(card->dev, "Can't new HDMI Jack %d\n", ret);
+		return ret;
+	}
+
+	return hdmi_codec_set_jack_detect(codec, &mt8173_hdmi_card_jack);
+}
+
 enum {
 	DAI_LINK_PLAYBACK,
 	DAI_LINK_CAPTURE,
@@ -228,6 +248,7 @@ static struct snd_soc_dai_link mt8173_rt5650_dais[] = {
 		.no_pcm = 1,
 		.codec_dai_name = "i2s-hifi",
 		.dpcm_playback = 1,
+		.init = mt8173_hdmi_init,
 	},
 };
 

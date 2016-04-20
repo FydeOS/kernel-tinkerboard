@@ -656,65 +656,6 @@ static const struct hdmi_acr_n hdmi_rec_n_table[] = {
 	{      0, {  4096,  6272,  6144 } }, /* all other TMDS clocks */
 };
 
-/**
- * hdmi_recommended_n() - Return N value recommended by HDMI specification
- * @freq: audio sample rate in Hz
- * @clock: rounded TMDS clock in kHz
- */
-static unsigned int hdmi_recommended_n(unsigned int freq, unsigned int clock)
-{
-	const struct hdmi_acr_n *recommended;
-	unsigned int i;
-
-	for (i = 0; i < ARRAY_SIZE(hdmi_rec_n_table) - 1; i++) {
-		if (clock == hdmi_rec_n_table[i].clock)
-			break;
-	}
-	recommended = hdmi_rec_n_table + i;
-
-	switch (freq) {
-	case 32000:
-		return recommended->n[0];
-	case 44100:
-		return recommended->n[1];
-	case 48000:
-		return recommended->n[2];
-	case 88200:
-		return recommended->n[1] * 2;
-	case 96000:
-		return recommended->n[2] * 2;
-	case 176400:
-		return recommended->n[1] * 4;
-	case 192000:
-		return recommended->n[2] * 4;
-	default:
-		return (128 * freq) / 1000;
-	}
-}
-
-static unsigned int hdmi_mode_clock_to_hz(unsigned int clock)
-{
-	switch (clock) {
-	case 25175:
-		return 25174825;	/* 25.2/1.001 MHz */
-	case 74176:
-		return 74175824;	/* 74.25/1.001 MHz */
-	case 148352:
-		return 148351648;	/* 148.5/1.001 MHz */
-	case 296703:
-		return 296703297;	/* 297/1.001 MHz */
-	default:
-		return clock * 1000;
-	}
-}
-
-static unsigned int hdmi_expected_cts(unsigned int audio_sample_rate,
-				      unsigned int tmds_clock, unsigned int n)
-{
-	return DIV_ROUND_CLOSEST_ULL((u64)hdmi_mode_clock_to_hz(tmds_clock) * n,
-				     128 * audio_sample_rate);
-}
-
 static void do_hdmi_hw_aud_set_ncts(struct mtk_hdmi *hdmi, unsigned int n,
 				    unsigned int cts)
 {
@@ -739,21 +680,37 @@ static void do_hdmi_hw_aud_set_ncts(struct mtk_hdmi *hdmi, unsigned int n,
 		mtk_hdmi_write(hdmi, GRL_NCTS, val[i]);
 }
 
+static unsigned int hdmi_mode_clock_to_hz(unsigned int clock)
+{
+	switch (clock) {
+	case 25175:
+		return 25174825;	/* 25.2/1.001 MHz */
+	case 74176:
+		return 74175824;	/* 74.25/1.001 MHz */
+	case 148352:
+		return 148351648;	/* 148.5/1.001 MHz */
+	case 296703:
+		return 296703296;	/* 297/1.001 MHz */
+	default:
+		return clock * 1000;
+	}
+}
+
 static void mtk_hdmi_hw_aud_set_ncts(struct mtk_hdmi *hdmi,
 				     unsigned int sample_rate,
 				     unsigned int clock)
 {
-	unsigned int n, cts;
+	struct hdmi_audio_n_cts n_cts;
 
-	n = hdmi_recommended_n(sample_rate, clock);
-	cts = hdmi_expected_cts(sample_rate, clock, n);
+	hdmi_audio_get_coherent_n_cts(sample_rate, hdmi_mode_clock_to_hz(clock),
+				      &n_cts);
 
 	dev_dbg(hdmi->dev, "%s: sample_rate=%u, clock=%d, cts=%u, n=%u\n",
-		__func__, sample_rate, clock, n, cts);
+		__func__, sample_rate, clock, n_cts.cts, n_cts.n);
 
 	mtk_hdmi_mask(hdmi, DUMMY_304, AUDIO_I2S_NCTS_SEL_64,
 		      AUDIO_I2S_NCTS_SEL);
-	do_hdmi_hw_aud_set_ncts(hdmi, n, cts);
+	do_hdmi_hw_aud_set_ncts(hdmi, n_cts.n, n_cts.cts);
 }
 
 static u8 mtk_hdmi_aud_get_chnl_count(enum hdmi_aud_channel_type channel_type)

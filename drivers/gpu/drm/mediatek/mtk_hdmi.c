@@ -20,6 +20,7 @@
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/hdmi.h>
+#include <linux/hdmi-notifier.h>
 #include <linux/i2c.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
@@ -1219,9 +1220,11 @@ static int mtk_hdmi_conn_get_modes(struct drm_connector *conn)
 	hdmi->dvi_mode = !drm_detect_monitor_audio(edid);
 
 	drm_mode_connector_update_edid_property(conn, edid);
+	hdmi_event_new_edid(hdmi->dev, edid, sizeof(*edid));
 
 	ret = drm_add_edid_modes(conn, edid);
 	drm_edid_to_eld(conn, edid);
+	hdmi_event_new_eld(hdmi->dev, conn->eld);
 	kfree(edid);
 	return ret;
 }

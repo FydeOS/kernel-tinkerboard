@@ -13,6 +13,7 @@
  */
 #include <linux/clk.h>
 #include <linux/delay.h>
+#include <linux/hdmi-notifier.h>
 #include <linux/io.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
@@ -105,6 +106,12 @@ void mtk_cec_set_hpd_event(struct device *dev,
 	cec->hdmi_dev = hdmi_dev;
 	cec->hpd_event = hpd_event;
 	spin_unlock_irqrestore(&cec->lock, flags);
+
+	/* Initial notification event to set jack state */
+	if (mtk_cec_hpd_high(dev))
+		hdmi_event_connect(hdmi_dev);
+	else
+		hdmi_event_disconnect(hdmi_dev);
 }
 
 bool mtk_cec_hpd_high(struct device *dev)
@@ -179,6 +186,10 @@ static irqreturn_t mtk_cec_htplg_isr_thread(int irq, void *arg)
 	if (cec->hpd != hpd) {
 		dev_dbg(dev, "hotplug event! cur hpd = %d, hpd = %d\n",
 			cec->hpd, hpd);
+		if (hpd)
+			hdmi_event_connect(cec->hdmi_dev);
+		else
+			hdmi_event_disconnect(cec->hdmi_dev);
 		cec->hpd = hpd;
 		mtk_cec_hpd_event(cec, hpd);
 	}

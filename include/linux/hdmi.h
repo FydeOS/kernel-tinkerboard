@@ -333,4 +333,28 @@ int hdmi_infoframe_unpack(union hdmi_infoframe *frame, void *buffer);
 void hdmi_infoframe_log(const char *level, struct device *dev,
 			union hdmi_infoframe *frame);
 
+/**
+ * struct hdmi_audio_n_cts - n and cts parameter for ACR packets
+ * @n: N parameter
+ * @cts: CTS parameter
+ * @cts_1_ratio: ratio from 0 to 99 to alternate "CTS" and "CTS + 1" values
+ *  ratio = 0: CTS parameter is accurate, no need to alternate with "CTS + 1"
+ *             value
+ *  ratio = x: Need to alternate with ACR "CTS + 1" value x percent of the time
+ *             to generate accurate audio clock
+ *  as exemple: if cts_1_ratio = 30: to have an accurate value, user
+ *  should transfer CTS value 70% of the time and (CTS+1) value 30% of the time
+ */
+struct hdmi_audio_n_cts {
+	unsigned int n;
+	unsigned int cts;
+	unsigned int cts_1_ratio;
+};
+
+int hdmi_audio_get_coherent_n_cts(unsigned int audio_fs,
+				  unsigned int tmds_clk,
+				  struct hdmi_audio_n_cts *n_cts);
+
+int hdmi_audio_get_non_coherent_n(unsigned int audio_fs);
+
 #endif /* _DRM_HDMI_H */

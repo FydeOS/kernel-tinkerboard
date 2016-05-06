@@ -4169,9 +4169,8 @@ DEFINE_SPINLOCK(mchdev_lock);
  * mchdev_lock. */
 static struct drm_i915_private *i915_mch_dev;
 
-bool ironlake_set_drps(struct drm_device *dev, u8 val)
+bool ironlake_set_drps(struct drm_i915_private *dev_priv, u8 val)
 {
-	struct drm_i915_private *dev_priv = dev->dev_private;
 	u16 rgvswctl;
 
 	assert_spin_locked(&mchdev_lock);
@@ -4193,9 +4192,8 @@ bool ironlake_set_drps(struct drm_device *dev, u8 val)
 	return true;
 }
 
-static void ironlake_enable_drps(struct drm_device *dev)
+static void ironlake_enable_drps(struct drm_i915_private *dev_priv)
 {
-	struct drm_i915_private *dev_priv = dev->dev_private;
 	u32 rgvmodectl;
 	u8 fmax, fmin, fstart, vstart;
 
@@ -4252,7 +4250,7 @@ static void ironlake_enable_drps(struct drm_device *dev)
 		DRM_ERROR("stuck trying to change perf mode\n");
 	mdelay(1);
 
-	ironlake_set_drps(dev, fstart);
+	ironlake_set_drps(dev_priv, fstart);
 
 	dev_priv->ips.last_count1 = I915_READ(DMIEC) +
 		I915_READ(DDREC) + I915_READ(CSIEC);
@@ -4263,9 +4261,8 @@ static void ironlake_enable_drps(struct drm_device *dev)
 	spin_unlock_irq(&mchdev_lock);
 }
 
-static void ironlake_disable_drps(struct drm_device *dev)
+static void ironlake_disable_drps(struct drm_i915_private *dev_priv)
 {
-	struct drm_i915_private *dev_priv = dev->dev_private;
 	u16 rgvswctl;
 
 	spin_lock_irq(&mchdev_lock);
@@ -4280,7 +4277,7 @@ static void ironlake_disable_drps(struct drm_device *dev)
 	I915_WRITE(DEIMR, I915_READ(DEIMR) | DE_PCU_EVENT);
 
 	/* Go back to the starting frequency */
-	ironlake_set_drps(dev, dev_priv->ips.fstart);
+	ironlake_set_drps(dev_priv, dev_priv->ips.fstart);
 	mdelay(1);
 	rgvswctl |= MEMCTL_CMD_STS;
 	I915_WRITE(MEMSWCTL, rgvswctl);
@@ -6080,7 +6077,7 @@ bool i915_gpu_turbo_disable(void)
 
 	dev_priv->ips.max_delay = dev_priv->ips.fstart;
 
-	if (!ironlake_set_drps(dev_priv->dev, dev_priv->ips.fstart))
+	if (!ironlake_set_drps(dev_priv, dev_priv->ips.fstart))
 		ret = false;
 
 out_unlock:
@@ -6231,13 +6228,11 @@ void intel_cleanup_gt_powersave(struct drm_device *dev)
 		intel_runtime_pm_put(dev_priv);
 }
 
-static void gen6_suspend_rps(struct drm_device *dev)
+static void gen6_suspend_rps(struct drm_i915_private *dev_priv)
 {
-	struct drm_i915_private *dev_priv = dev->dev_private;
-
 	flush_delayed_work(&dev_priv->rps.delayed_resume_work);
 
-	gen6_disable_rps_interrupts(dev);
+	gen6_disable_rps_interrupts(dev_priv);
 }
 
 /**
@@ -6252,10 +6247,10 @@ void intel_suspend_gt_powersave(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 
-	if (INTEL_INFO(dev)->gen < 6)
+	if (INTEL_GEN(dev_priv) < 6)
 		return;
 
-	gen6_suspend_rps(dev);
+	gen6_suspend_rps(dev_priv);
 
 	/* Force GPU to min freq during suspend */
 	gen6_rps_idle(dev_priv);
@@ -6266,7 +6261,7 @@ void intel_disable_gt_powersave(struct drm_device *dev)
 	struct drm_i915_private *dev_priv = dev->dev_private;
 
 	if (IS_IRONLAKE_M(dev)) {
-		ironlake_disable_drps(dev);
+		ironlake_disable_drps(dev_priv);
 	} else if (INTEL_INFO(dev)->gen >= 6) {
 		intel_suspend_gt_powersave(dev);
 
@@ -6321,7 +6316,7 @@ static void intel_gen6_powersave_work(struct work_struct *work)
 
 	dev_priv->rps.enabled = true;
 
-	gen6_enable_rps_interrupts(dev);
+	gen6_enable_rps_interrupts(dev_priv);
 
 	mutex_unlock(&dev_priv->rps.hw_lock);
 
@@ -6337,7 +6332,7 @@ void intel_enable_gt_powersave(struct drm_device *dev)
 		return;
 
 	if (IS_IRONLAKE_M(dev)) {
-		ironlake_enable_drps(dev);
+		ironlake_enable_drps(dev_priv);
 		mutex_lock(&dev->struct_mutex);
 		intel_init_emon(dev);
 		mutex_unlock(&dev->struct_mutex);
@@ -6367,7 +6362,7 @@ void intel_reset_gt_powersave(struct drm_device *dev)
 	if (INTEL_INFO(dev)->gen < 6)
 		return;
 
-	gen6_suspend_rps(dev);
+	gen6_suspend_rps(dev_priv);
 	dev_priv->rps.enabled = false;
 }
 
@@ -7396,12 +7391,11 @@ static void __intel_rps_boost_work(struct work_struct *work)
 	kfree(boost);
 }
 
-void intel_queue_rps_boost_for_request(struct drm_device *dev,
-				       struct drm_i915_gem_request *req)
+void intel_queue_rps_boost_for_request(struct drm_i915_gem_request *req)
 {
 	struct request_boost *boost;
 
-	if (req == NULL || INTEL_INFO(dev)->gen < 6)
+	if (req == NULL || INTEL_GEN(req->i915) < 6)
 		return;
 
 	if (i915_gem_request_completed(req, true))
@@ -7415,7 +7409,7 @@ void intel_queue_rps_boost_for_request(struct drm_device *dev,
 	boost->req = req;
 
 	INIT_WORK(&boost->work, __intel_rps_boost_work);
-	queue_work(to_i915(dev)->wq, &boost->work);
+	queue_work(req->i915->wq, &boost->work);
 }
 
 void intel_pm_setup(struct drm_device *dev)

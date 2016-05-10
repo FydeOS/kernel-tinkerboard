@@ -107,7 +107,7 @@ static int mwifiex_sdio_probe_of(struct device *dev, struct sdio_mmc_card *card)
 
 	if (!dev->of_node ||
 	    !of_match_node(mwifiex_sdio_of_match_table, dev->of_node)) {
-		pr_err("sdio platform data not available");
+		dev_err(dev, "sdio platform data not available\n");
 		return -1;
 	}
 
@@ -119,7 +119,8 @@ static int mwifiex_sdio_probe_of(struct device *dev, struct sdio_mmc_card *card)
 		cfg->dev = dev;
 		cfg->irq_wifi = irq_of_parse_and_map(card->plt_of_node, 0);
 		if (!cfg->irq_wifi) {
-			dev_err(dev, "fail to parse irq_wifi from device tree");
+			dev_err(dev,
+				"fail to parse irq_wifi from device tree\n");
 		} else {
 			ret = devm_request_irq(dev, cfg->irq_wifi,
 					       mwifiex_wake_irq_wifi,

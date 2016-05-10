@@ -493,7 +493,7 @@ static int vop_remove(struct platform_device *pdev)
 	return 0;
 }
 
-struct platform_driver vop_platform_driver = {
+static struct platform_driver vop_platform_driver = {
 	.probe = vop_probe,
 	.remove = vop_remove,
 	.driver = {

@@ -389,9 +389,9 @@ void rockchip_drm_atomic_work(struct kthread_work *work)
 	rockchip_atomic_commit_complete(commit);
 }
 
-int rockchip_drm_atomic_commit(struct drm_device *dev,
-			       struct drm_atomic_state *state,
-			       bool nonblock)
+static int rockchip_drm_atomic_commit(struct drm_device *dev,
+				      struct drm_atomic_state *state,
+				      bool nonblock)
 {
 	struct rockchip_drm_private *private = dev->dev_private;
 	struct rockchip_atomic_commit *commit = &private->commit;

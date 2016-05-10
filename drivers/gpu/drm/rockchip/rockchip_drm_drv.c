@@ -366,7 +366,7 @@ static void rockchip_drm_preclose(struct drm_device *dev,
 		rockchip_drm_crtc_cancel_pending_vblank(crtc, file_priv);
 }
 
-void rockchip_drm_lastclose(struct drm_device *dev)
+static void rockchip_drm_lastclose(struct drm_device *dev)
 {
 #ifdef CONFIG_DRM_FBDEV_EMULATION
 	struct rockchip_drm_private *priv = dev->dev_private;

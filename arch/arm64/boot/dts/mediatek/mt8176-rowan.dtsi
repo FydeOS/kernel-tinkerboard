@@ -11,6 +11,7 @@
 
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/regulator/regulator.h>
 #include "mt8176.dtsi"
 
 / {
@@ -242,6 +243,9 @@
 				regulator-max-microamp  = <4400000>;
 				regulator-ramp-delay = <10000>;
 				regulator-always-on;
+				regulator-supported-modes =
+					<REGULATOR_OPERATION_MODE_FAST
+					 REGULATOR_OPERATION_MODE_NORMAL>;
 			};
 
 			da9211_vgpu_reg: BUCKB {
@@ -702,6 +706,9 @@
 				regulator-max-microvolt = <1350000>;
 				regulator-ramp-delay = <12500>;
 				regulator-always-on;
+				regulator-supported-modes =
+					<REGULATOR_OPERATION_MODE_FAST
+					 REGULATOR_OPERATION_MODE_NORMAL>;
 			};
 
 			mt6397_vpca7_reg: buck_vpca7 {

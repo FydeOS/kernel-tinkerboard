@@ -103,7 +103,6 @@ struct zram {
 	 * the number of pages zram can consume for storing compressed data
 	 */
 	unsigned long limit_pages;
-	int max_comp_streams;
 	atomic_t nr_opens;	/* number of active file handles */
 
 	struct zram_stats stats;

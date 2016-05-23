@@ -31,7 +31,7 @@ static void of_get_regulation_constraints(struct device_node *np,
 	struct regulation_constraints *constraints = &(*init_data)->constraints;
 	struct regulator_state *suspend_state;
 	struct device_node *suspend_np;
-	int ret, i;
+	int ret, i, cnt;
 	u32 pval;
 
 	constraints->name = of_get_property(np, "regulator-name", NULL);
@@ -166,6 +166,20 @@ static void of_get_regulation_constraints(struct device_node *np,
 		of_node_put(suspend_np);
 		suspend_state = NULL;
 		suspend_np = NULL;
+	}
+
+	cnt = of_property_count_elems_of_size(np,
+					      "regulator-supported-modes",
+					      sizeof(u32));
+	if (cnt > 0)
+		constraints->valid_ops_mask |= REGULATOR_CHANGE_MODE;
+
+	for (i = 0; i < cnt; i++) {
+		u32 mode;
+
+		of_property_read_u32_index(np, "regulator-supported-modes",
+					   i, &mode);
+		constraints->valid_modes_mask |= (1 << mode);
 	}
 }
 

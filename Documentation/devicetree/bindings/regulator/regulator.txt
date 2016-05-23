@@ -49,6 +49,11 @@ Optional properties:
 	0: Disable active discharge.
 	1: Enable active discharge.
 	Absence of this property will leave configuration to default.
+- regulator-supported-modes: Regulators can run in a variety of different
+  operating modes depending on output load. This allows further system power
+  savings by selecting the best (and most efficient) regulator mode for a
+  desired load. The definition for each of these operation is defined at
+  include/dt-bindings/regulator/regulator.h
 
 Deprecated properties:
 - regulator-compatible: If a regulator chip contains multiple

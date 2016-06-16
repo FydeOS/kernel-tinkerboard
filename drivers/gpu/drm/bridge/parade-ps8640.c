@@ -258,6 +258,8 @@ static void ps8640_pre_enable(struct drm_bridge *bridge)
 		msleep(20);
 	}
 
+	usleep_range(3000, 3500);
+
 	if (ps_bridge->info.version == 0)
 		ps8640_get_mcu_fw_version(ps_bridge);
 

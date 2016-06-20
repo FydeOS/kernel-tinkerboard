@@ -3307,6 +3307,12 @@ restart:
 			if (sock_flag(sk, SOCK_DEAD))
 				continue;
 
+			if (family != sk->sk_family)
+				continue;
+
+			if (sock_net(sk) != net)
+				continue;
+
 			if (family == AF_INET) {
 				__be32 s4 = inet->inet_rcv_saddr;
 				if (s4 == LOOPBACK4_IPV6)

@@ -771,7 +771,7 @@ int mtk_drm_crtc_create(struct drm_device *drm_dev,
 					      BIT_ULL(CMDQ_ENG_DISP_COLOR1) |
 					      BIT_ULL(CMDQ_ENG_DISP_GAMMA) |
 					      BIT_ULL(CMDQ_ENG_DISP_RDMA1) |
-					      BIT_ULL(CMDQ_ENG_DISP_DSI1));
+					      BIT_ULL(CMDQ_ENG_DISP_DPI0));
 		mtk_crtc->cmdq_event = CMDQ_EVENT_MUTEX1_STREAM_EOF;
 	}
 

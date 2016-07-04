@@ -79,6 +79,8 @@ static void mtk_atomic_complete(struct mtk_drm_private *private,
 	drm_atomic_helper_commit_modeset_enables(drm, state);
 	drm_atomic_helper_commit_planes(drm, state, true);
 
+	drm_atomic_helper_wait_for_vblanks(drm, state);
+
 	drm_atomic_helper_cleanup_planes(drm, state);
 	drm_atomic_state_free(state);
 }

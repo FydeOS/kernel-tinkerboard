@@ -73,15 +73,6 @@ struct mtk_drm_crtc {
 
 struct mtk_crtc_state {
 	struct drm_crtc_state		base;
-
-	bool				pending_config;
-	unsigned int			pending_width;
-	unsigned int			pending_height;
-	unsigned int			pending_vrefresh;
-	bool				cmdq_pending_config;
-	unsigned int			cmdq_pending_width;
-	unsigned int			cmdq_pending_height;
-	unsigned int			cmdq_pending_vrefresh;
 };
 
 static inline struct mtk_drm_crtc *to_mtk_crtc(struct drm_crtc *c)
@@ -385,7 +376,6 @@ static void mtk_drm_crtc_atomic_flush(struct drm_crtc *crtc,
 				      struct drm_crtc_state *old_crtc_state)
 {
 	struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
-	struct mtk_crtc_state *state;
 	unsigned int i;
 
 	mutex_lock(&mtk_crtc->cmdq_pending_lock);
@@ -402,16 +392,6 @@ static void mtk_drm_crtc_atomic_flush(struct drm_crtc *crtc,
 			plane_state->pending.config = true;
 			plane_state->pending.dirty = false;
 		}
-	}
-
-	state = to_mtk_crtc_state(mtk_crtc->base.state);
-
-	if (state->pending_config) {
-		state->cmdq_pending_width = state->pending_width;
-		state->cmdq_pending_height = state->pending_height;
-		state->cmdq_pending_vrefresh = state->pending_vrefresh;
-		state->cmdq_pending_config = state->pending_config;
-		state->pending_config = false;
 	}
 
 	for (i = 0; i < OVL_LAYER_NR; i++) {
@@ -536,14 +516,6 @@ static void mtk_drm_crtc_commit_cmdq(struct drm_crtc *crtc)
 
 	ovl = mtk_crtc->ddp_comp[0];
 	state = to_mtk_crtc_state(mtk_crtc->base.state);
-
-	if (state->cmdq_pending_config) {
-		mtk_ddp_comp_config(ovl, state->cmdq_pending_width,
-				    state->cmdq_pending_height,
-				    state->cmdq_pending_vrefresh,
-				    0, cmdq_handle);
-		state->cmdq_pending_config = false;
-	}
 
 	for (i = 0; i < OVL_LAYER_NR; i++) {
 		if (mtk_crtc->cmdq_pending[i].config) {

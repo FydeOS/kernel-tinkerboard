@@ -169,17 +169,6 @@ static bool mtk_drm_crtc_mode_fixup(struct drm_crtc *crtc,
 	return true;
 }
 
-static void mtk_drm_crtc_mode_set_nofb(struct drm_crtc *crtc)
-{
-	struct mtk_crtc_state *state = to_mtk_crtc_state(crtc->state);
-
-	state->pending_width = crtc->mode.hdisplay;
-	state->pending_height = crtc->mode.vdisplay;
-	state->pending_vrefresh = crtc->mode.vrefresh;
-	wmb();	/* Make sure the above parameters are set before update */
-	state->pending_config = true;
-}
-
 int mtk_drm_crtc_enable_vblank(struct drm_device *drm, unsigned int pipe)
 {
 	struct mtk_drm_private *priv = drm->dev_private;
@@ -625,7 +614,6 @@ static const struct drm_crtc_funcs mtk_crtc_funcs = {
 
 static const struct drm_crtc_helper_funcs mtk_crtc_helper_funcs = {
 	.mode_fixup	= mtk_drm_crtc_mode_fixup,
-	.mode_set_nofb	= mtk_drm_crtc_mode_set_nofb,
 	.enable		= mtk_drm_crtc_enable,
 	.disable	= mtk_drm_crtc_disable,
 	.atomic_begin	= mtk_drm_crtc_atomic_begin,

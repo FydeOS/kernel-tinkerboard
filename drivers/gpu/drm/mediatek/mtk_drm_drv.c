@@ -38,6 +38,79 @@
 #define DRIVER_MAJOR 1
 #define DRIVER_MINOR 0
 
+struct mtk_atomic_state {
+	struct drm_atomic_state base;
+	struct list_head list;
+	struct kref kref;
+};
+
+static inline struct mtk_atomic_state *to_mtk_state(struct drm_atomic_state *s)
+{
+	return container_of(s, struct mtk_atomic_state, base);
+}
+
+static void mtk_atomic_state_free(struct kref *k)
+{
+	struct mtk_atomic_state *mtk_state =
+			container_of(k, struct mtk_atomic_state, kref);
+	struct drm_atomic_state *state = &mtk_state->base;
+
+	drm_atomic_state_clear(state);
+	drm_atomic_state_default_release(state);
+	kfree(mtk_state);
+}
+
+void mtk_atomic_state_get(struct drm_atomic_state *state)
+{
+	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
+
+	kref_get(&mtk_state->kref);
+}
+
+static void mtk_atomic_state_put(struct drm_atomic_state *state)
+{
+	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
+
+	kref_put(&mtk_state->kref, mtk_atomic_state_free);
+}
+
+void mtk_atomic_state_put_queue(struct drm_atomic_state *state)
+{
+	struct drm_device *drm = state->dev;
+	struct mtk_drm_private *mtk_drm = drm->dev_private;
+	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
+	unsigned long flags;
+
+	spin_lock_irqsave(&mtk_drm->unreference.lock, flags);
+	list_add_tail(&mtk_state->list, &mtk_drm->unreference.list);
+	spin_unlock_irqrestore(&mtk_drm->unreference.lock, flags);
+
+	schedule_work(&mtk_drm->unreference.work);
+}
+
+static void mtk_unreference_work(struct work_struct *work)
+{
+	struct mtk_drm_private *mtk_drm = container_of(work,
+			struct mtk_drm_private, unreference.work);
+	unsigned long flags;
+	struct mtk_atomic_state *state, *tmp;
+
+	/*
+	 * framebuffers cannot be unreferenced in atomic context.
+	 * Therefore, only hold the spinlock when iterating unreference_list,
+	 * and drop it when doing the unreference.
+	 */
+	spin_lock_irqsave(&mtk_drm->unreference.lock, flags);
+	list_for_each_entry_safe(state, tmp, &mtk_drm->unreference.list, list) {
+		list_del(&state->list);
+		spin_unlock_irqrestore(&mtk_drm->unreference.lock, flags);
+		mtk_atomic_state_put(&state->base);
+		spin_lock_irqsave(&mtk_drm->unreference.lock, flags);
+	}
+	spin_unlock_irqrestore(&mtk_drm->unreference.lock, flags);
+}
+
+
 static void mtk_atomic_schedule(struct mtk_drm_private *private,
 				struct drm_atomic_state *state)
 {
@@ -82,7 +155,7 @@ static void mtk_atomic_complete(struct mtk_drm_private *private,
 	drm_atomic_helper_wait_for_vblanks(drm, state);
 
 	drm_atomic_helper_cleanup_planes(drm, state);
-	drm_atomic_state_free(state);
+	mtk_atomic_state_put(state);
 }
 
 static void mtk_atomic_work(struct work_struct *work)
@@ -119,10 +192,37 @@ static int mtk_atomic_commit(struct drm_device *drm,
 	return 0;
 }
 
+static struct drm_atomic_state *mtk_drm_atomic_state_alloc(
+		struct drm_device *dev)
+{
+	struct mtk_atomic_state *mtk_state;
+
+	mtk_state = kzalloc(sizeof(*mtk_state), GFP_KERNEL);
+	if (!mtk_state)
+		return NULL;
+
+	if (drm_atomic_state_init(dev, &mtk_state->base) < 0) {
+		kfree(mtk_state);
+		return NULL;
+	}
+
+	INIT_LIST_HEAD(&mtk_state->list);
+	kref_init(&mtk_state->kref);
+
+	return &mtk_state->base;
+}
+
+static void mtk_drm_atomic_state_free(struct drm_atomic_state *state)
+{
+	mtk_atomic_state_put(state);
+}
+
 static const struct drm_mode_config_funcs mtk_drm_mode_config_funcs = {
 	.fb_create = mtk_drm_mode_fb_create,
 	.atomic_check = drm_atomic_helper_check,
 	.atomic_commit = mtk_atomic_commit,
+	.atomic_state_alloc = mtk_drm_atomic_state_alloc,
+	.atomic_state_free = mtk_drm_atomic_state_free
 };
 
 static const enum mtk_ddp_comp_id mtk_ddp_main[] = {
@@ -219,6 +319,10 @@ static int mtk_drm_kms_init(struct drm_device *drm)
 	drm->vblank_disable_allowed = true;
 	drm_kms_helper_poll_init(drm);
 	drm_mode_config_reset(drm);
+
+	INIT_WORK(&private->unreference.work, mtk_unreference_work);
+	INIT_LIST_HEAD(&private->unreference.list);
+	spin_lock_init(&private->unreference.lock);
 
 	return 0;
 

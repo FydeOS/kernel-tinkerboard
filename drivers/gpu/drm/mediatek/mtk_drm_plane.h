@@ -19,7 +19,6 @@
 #include <linux/types.h>
 
 struct mtk_plane_pending_state {
-	bool				config;
 	bool				enable;
 	dma_addr_t			addr;
 	unsigned int			pitch;
@@ -28,7 +27,6 @@ struct mtk_plane_pending_state {
 	unsigned int			y;
 	unsigned int			width;
 	unsigned int			height;
-	bool				dirty;
 };
 
 struct mtk_plane_state {

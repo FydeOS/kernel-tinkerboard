@@ -31,4 +31,7 @@ int mtk_drm_crtc_create(struct drm_device *drm_dev,
 			const enum mtk_ddp_comp_id *path,
 			unsigned int path_len);
 
+void mtk_drm_crtc_plane_update(struct drm_crtc *crtc, struct drm_plane *plane,
+			       struct mtk_plane_pending_state *pending);
+
 #endif /* MTK_DRM_CRTC_H */

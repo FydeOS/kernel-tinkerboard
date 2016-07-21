@@ -118,13 +118,13 @@ static int mtk_plane_atomic_check(struct drm_plane *plane,
 static void mtk_plane_atomic_update(struct drm_plane *plane,
 				    struct drm_plane_state *old_state)
 {
-	struct mtk_plane_state *state = to_mtk_plane_state(plane->state);
 	struct drm_crtc *crtc = plane->state->crtc;
 	struct drm_framebuffer *fb = plane->state->fb;
 	struct drm_gem_object *gem;
 	struct mtk_drm_gem_obj *mtk_gem;
 	unsigned int pitch, format;
 	dma_addr_t addr;
+	struct mtk_plane_pending_state pending;
 
 	if (!crtc || WARN_ON(!fb))
 		return;
@@ -138,26 +138,27 @@ static void mtk_plane_atomic_update(struct drm_plane *plane,
 	addr += (plane->state->src.x1 >> 16) * drm_format_plane_cpp(format, 0);
 	addr += (plane->state->src.y1 >> 16) * pitch;
 
-	state->pending.enable = true;
-	state->pending.pitch = pitch;
-	state->pending.format = format;
-	state->pending.addr = addr;
-	state->pending.x = plane->state->dst.x1;
-	state->pending.y = plane->state->dst.y1;
-	state->pending.width = drm_rect_width(&plane->state->dst);
-	state->pending.height = drm_rect_height(&plane->state->dst);
-	wmb(); /* Make sure the above parameters are set before update */
-	state->pending.dirty = true;
+	pending.enable = true;
+	pending.pitch = pitch;
+	pending.format = format;
+	pending.addr = addr;
+	pending.x = plane->state->dst.x1;
+	pending.y = plane->state->dst.y1;
+	pending.width = drm_rect_width(&plane->state->dst);
+	pending.height = drm_rect_height(&plane->state->dst);
+
+	mtk_drm_crtc_plane_update(crtc, plane, &pending);
 }
 
 static void mtk_plane_atomic_disable(struct drm_plane *plane,
 				     struct drm_plane_state *old_state)
 {
-	struct mtk_plane_state *state = to_mtk_plane_state(plane->state);
+	struct mtk_plane_pending_state pending;
 
-	state->pending.enable = false;
-	wmb(); /* Make sure the above parameter is set before update */
-	state->pending.dirty = true;
+	pending.enable = false;
+
+	/* Fetch CRTC from old plane state when disabling. */
+	mtk_drm_crtc_plane_update(old_state->crtc, plane, &pending);
 }
 
 static const struct drm_plane_helper_funcs mtk_plane_helper_funcs = {

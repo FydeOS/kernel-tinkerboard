@@ -43,24 +43,12 @@ struct mtk_drm_crtc {
 	struct drm_crtc			base;
 	bool				enabled;
 
-	bool				pending_needs_vblank;
-	struct drm_pending_vblank_event	*event;
 	struct completion		completion;
 	bool				cmdq_needs_event;
 	struct drm_pending_vblank_event	*cmdq_vblank_event;
 
-	bool				cmdq_busy;
-	bool				cmdq_flush;
 	u64				cmdq_engine_flag;
 	int				cmdq_event;
-	struct work_struct		cmdq_work;
-	struct mtk_plane_pending_state	cmdq_pending[OVL_LAYER_NR];
-	struct mutex			cmdq_pending_lock;
-
-	struct work_struct		unreference_work;
-	struct drm_framebuffer		*new_fb[OVL_LAYER_NR];
-	struct drm_framebuffer		*onscreen_fb[OVL_LAYER_NR];
-	struct drm_framebuffer		*old_fb[OVL_LAYER_NR];
 
 	struct drm_plane		planes[OVL_LAYER_NR];
 
@@ -73,6 +61,7 @@ struct mtk_drm_crtc {
 
 struct mtk_crtc_state {
 	struct drm_crtc_state		base;
+	struct cmdq_rec			*cmdq_handle;
 };
 
 static inline struct mtk_drm_crtc *to_mtk_crtc(struct drm_crtc *c)
@@ -212,7 +201,9 @@ static void mtk_crtc_ddp_clk_disable(struct mtk_drm_crtc *mtk_crtc)
 
 static int ddp_cmdq_cb(void *data)
 {
-	struct drm_crtc *crtc = data;
+	struct drm_crtc_state *crtc_state = data;
+	struct drm_atomic_state *atomic_state = crtc_state->state;
+	struct drm_crtc *crtc = crtc_state->crtc;
 	struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
 
 	complete(&mtk_crtc->completion);
@@ -222,7 +213,8 @@ static int ddp_cmdq_cb(void *data)
 		mtk_crtc->cmdq_needs_event = false;
 	}
 
-	schedule_work(&mtk_crtc->unreference_work);
+	mtk_atomic_state_put_queue(atomic_state);
+
 	return 0;
 }
 
@@ -372,55 +364,47 @@ static void mtk_crtc_ddp_hw_fini(struct mtk_drm_crtc *mtk_crtc)
 	pm_runtime_put(drm->dev);
 }
 
+void mtk_drm_crtc_plane_update(struct drm_crtc *crtc, struct drm_plane *plane,
+			       struct mtk_plane_pending_state *pending)
+{
+	struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
+	unsigned int plane_index = plane - mtk_crtc->planes;
+	struct drm_crtc_state *crtc_state = crtc->state;
+	struct mtk_crtc_state *state = to_mtk_crtc_state(crtc_state);
+	struct mtk_ddp_comp *ovl = mtk_crtc->ddp_comp[0];
+	struct cmdq_rec *cmdq_handle = state->cmdq_handle;
+
+	mtk_ddp_comp_layer_config(ovl, plane_index, pending, cmdq_handle);
+}
+
 static void mtk_drm_crtc_atomic_flush(struct drm_crtc *crtc,
 				      struct drm_crtc_state *old_crtc_state)
 {
-	struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
-	unsigned int i;
+	struct drm_crtc_state *crtc_state = crtc->state;
+	struct drm_atomic_state *old_atomic_state = old_crtc_state->state;
+	struct mtk_crtc_state *state = to_mtk_crtc_state(crtc_state);
+	struct cmdq_rec *cmdq_handle = state->cmdq_handle;
 
-	mutex_lock(&mtk_crtc->cmdq_pending_lock);
-	if (mtk_crtc->event)
-		mtk_crtc->pending_needs_vblank = true;
+	DRM_DEBUG_DRIVER("[CRTC:%u] [STATE:%p(%p)->%p(%p)]\n", crtc->base.id,
+			 old_crtc_state, old_crtc_state->state,
+			 crtc_state, crtc_state->state);
 
-	for (i = 0; i < OVL_LAYER_NR; i++) {
-		struct drm_plane *plane = &mtk_crtc->planes[i];
-		struct mtk_plane_state *plane_state;
+	if (crtc->state->color_mgmt_changed) {
+		struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
+		int i;
 
-		plane_state = to_mtk_plane_state(plane->state);
-		if (plane_state->pending.dirty) {
-			mtk_crtc->cmdq_pending[i].dirty = true;
-			plane_state->pending.config = true;
-			plane_state->pending.dirty = false;
-		}
+		for (i = 0; i < mtk_crtc->ddp_comp_nr; i++)
+			mtk_ddp_gamma_set(mtk_crtc->ddp_comp[i], crtc->state,
+					  cmdq_handle);
 	}
 
-	for (i = 0; i < OVL_LAYER_NR; i++) {
-		struct drm_plane *plane = &mtk_crtc->planes[i];
-		struct mtk_plane_state *plane_state;
+	mtk_atomic_state_get(old_atomic_state);
 
-		plane_state = to_mtk_plane_state(plane->state);
-		if (plane_state->pending.config) {
-			mtk_crtc->cmdq_pending[i] = plane_state->pending;
-
-			if (plane_state->base.fb != mtk_crtc->new_fb[i]) {
-				/* If replacing a pending FB, unref it now. */
-				if (mtk_crtc->new_fb[i])
-					drm_framebuffer_unreference(
-							mtk_crtc->new_fb[i]);
-
-				if (plane_state->base.fb)
-					drm_framebuffer_reference(
-							plane_state->base.fb);
-
-				mtk_crtc->new_fb[i] = plane_state->base.fb;
-			}
-
-			plane_state->pending.config = false;
-		}
-	}
-	mtk_crtc->cmdq_flush = true;
-	mutex_unlock(&mtk_crtc->cmdq_pending_lock);
+	cmdq_rec_flush_async_callback(cmdq_handle, ddp_cmdq_cb,
+				      old_crtc_state, NULL, NULL);
+	cmdq_rec_destroy(cmdq_handle);
 }
+
 
 static void mtk_drm_crtc_enable(struct drm_crtc *crtc)
 {
@@ -457,7 +441,6 @@ static void mtk_drm_crtc_disable(struct drm_crtc *crtc)
 		return;
 
 	/* Wait for any pending plane updates to complete */
-	flush_work(&mtk_crtc->cmdq_work);
 	wait_for_completion(&mtk_crtc->completion);
 
 	mtk_crtc->enabled = false;
@@ -472,6 +455,8 @@ static void mtk_drm_crtc_atomic_begin(struct drm_crtc *crtc,
 {
 	struct mtk_crtc_state *state = to_mtk_crtc_state(crtc->state);
 	struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
+	struct mtk_drm_private *priv = mtk_crtc->base.dev->dev_private;
+	struct device *gce_dev = &priv->gce_pdev->dev;
 
 	if (mtk_crtc->cmdq_vblank_event && state->base.event)
 		DRM_ERROR("new event while there is still a pending event\n");
@@ -479,99 +464,16 @@ static void mtk_drm_crtc_atomic_begin(struct drm_crtc *crtc,
 	if (state->base.event) {
 		state->base.event->pipe = drm_crtc_index(crtc);
 		WARN_ON(drm_crtc_vblank_get(crtc) != 0);
-		mtk_crtc->event = state->base.event;
-		state->base.event = NULL;
-	}
-}
 
-static void mtk_drm_crtc_commit_cmdq(struct drm_crtc *crtc)
-{
-	struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
-	struct mtk_drm_private *priv = mtk_crtc->base.dev->dev_private;
-	struct device *gce_dev = &priv->gce_pdev->dev;
-	struct mtk_ddp_comp *ovl;
-	struct mtk_crtc_state *state;
-	struct cmdq_rec *cmdq_handle;
-	unsigned int i;
-
-	mutex_lock(&mtk_crtc->cmdq_pending_lock);
-	mtk_crtc->cmdq_busy = true;
-	if (mtk_crtc->pending_needs_vblank) {
-		mtk_crtc->cmdq_vblank_event = mtk_crtc->event;
-		mtk_crtc->cmdq_needs_event = mtk_crtc->pending_needs_vblank;
-		mtk_crtc->event = NULL;
-		mtk_crtc->pending_needs_vblank = false;
+		mtk_crtc->cmdq_vblank_event = state->base.event;
+		mtk_crtc->cmdq_needs_event = true;
 	}
+
 	reinit_completion(&mtk_crtc->completion);
-	cmdq_rec_create(gce_dev, mtk_crtc->cmdq_engine_flag, &cmdq_handle);
-	cmdq_rec_clear_event(cmdq_handle, mtk_crtc->cmdq_event);
-	cmdq_rec_wait(cmdq_handle, mtk_crtc->cmdq_event);
-
-	for (i = 0; i < OVL_LAYER_NR; i++) {
-		if (mtk_crtc->cmdq_pending[i].dirty) {
-			mtk_crtc->cmdq_pending[i].config = true;
-			mtk_crtc->cmdq_pending[i].dirty = false;
-		}
-	}
-
-	ovl = mtk_crtc->ddp_comp[0];
-	state = to_mtk_crtc_state(mtk_crtc->base.state);
-
-	for (i = 0; i < OVL_LAYER_NR; i++) {
-		if (mtk_crtc->cmdq_pending[i].config) {
-			/*
-			 * There should only be one cmdq_rec active at a time,
-			 * so there should not be any old FB that has not yet
-			 * been unreferenced.
-			 */
-			WARN_ON(mtk_crtc->old_fb[i]);
-
-			mtk_crtc->old_fb[i] = mtk_crtc->onscreen_fb[i];
-			mtk_crtc->onscreen_fb[i] = mtk_crtc->new_fb[i];
-			mtk_crtc->new_fb[i] = NULL;
-
-			mtk_ddp_comp_layer_config(ovl, i,
-						  &mtk_crtc->cmdq_pending[i],
-						  cmdq_handle);
-			mtk_crtc->cmdq_pending[i].config = false;
-		}
-	}
-
-	if (crtc->state->color_mgmt_changed)
-		for (i = 0; i < mtk_crtc->ddp_comp_nr; i++)
-			mtk_ddp_gamma_set(mtk_crtc->ddp_comp[i], crtc->state,
-					  cmdq_handle);
-
-	cmdq_rec_flush_async_callback(cmdq_handle, ddp_cmdq_cb,
-				      crtc, NULL, NULL);
-	cmdq_rec_destroy(cmdq_handle);
-
-	mtk_crtc->cmdq_flush = false;
-	mutex_unlock(&mtk_crtc->cmdq_pending_lock);
-}
-
-static void mtk_drm_crtc_cmdq_work(struct work_struct *work)
-{
-	struct mtk_drm_crtc *mtk_crtc = container_of(work,
-			struct mtk_drm_crtc, cmdq_work);
-
-	mtk_drm_crtc_commit_cmdq(&mtk_crtc->base);
-}
-
-static void mtk_drm_crtc_unreference_work(struct work_struct *work)
-{
-	struct mtk_drm_crtc *mtk_crtc = container_of(work,
-			struct mtk_drm_crtc, unreference_work);
-	unsigned int i;
-
-	for (i = 0; i < OVL_LAYER_NR; i++) {
-		if (mtk_crtc->old_fb[i]) {
-			drm_framebuffer_unreference(mtk_crtc->old_fb[i]);
-			mtk_crtc->old_fb[i] = NULL;
-		}
-	}
-
-	mtk_crtc->cmdq_busy = false;
+	cmdq_rec_create(gce_dev, mtk_crtc->cmdq_engine_flag,
+			&state->cmdq_handle);
+	cmdq_rec_clear_event(state->cmdq_handle, mtk_crtc->cmdq_event);
+	cmdq_rec_wait(state->cmdq_handle, mtk_crtc->cmdq_event);
 }
 
 static const struct drm_crtc_funcs mtk_crtc_funcs = {
@@ -622,10 +524,6 @@ void mtk_crtc_vblank_irq(struct drm_crtc *crtc)
 
 void mtk_crtc_target_line_irq(struct drm_crtc *crtc)
 {
-	struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
-
-	if (mtk_crtc->enabled && !mtk_crtc->cmdq_busy && mtk_crtc->cmdq_flush)
-		schedule_work(&mtk_crtc->cmdq_work);
 }
 
 int mtk_drm_crtc_create(struct drm_device *drm_dev,
@@ -717,7 +615,6 @@ int mtk_drm_crtc_create(struct drm_device *drm_dev,
 	priv->crtc[pipe] = &mtk_crtc->base;
 	priv->num_pipes++;
 
-	mutex_init(&mtk_crtc->cmdq_pending_lock);
 	init_completion(&mtk_crtc->completion);
 	complete(&mtk_crtc->completion);
 
@@ -737,10 +634,6 @@ int mtk_drm_crtc_create(struct drm_device *drm_dev,
 					      BIT_ULL(CMDQ_ENG_DISP_DPI0));
 		mtk_crtc->cmdq_event = CMDQ_EVENT_MUTEX1_STREAM_EOF;
 	}
-
-	INIT_WORK(&mtk_crtc->cmdq_work, mtk_drm_crtc_cmdq_work);
-	INIT_WORK(&mtk_crtc->unreference_work, mtk_drm_crtc_unreference_work);
-
 	return 0;
 
 unprepare:

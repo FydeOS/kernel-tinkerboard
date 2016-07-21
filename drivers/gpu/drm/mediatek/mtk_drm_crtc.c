@@ -310,8 +310,35 @@ static int mtk_crtc_ddp_hw_init(struct mtk_drm_crtc *mtk_crtc)
 
 	DRM_DEBUG_DRIVER("ddp_disp_path_power_on %dx%d\n", width, height);
 	cmdq_rec_create(gce_dev, mtk_crtc->cmdq_engine_flag, &cmdq_handle);
-	cmdq_rec_clear_event(cmdq_handle, mtk_crtc->cmdq_event);
-	cmdq_rec_wait(cmdq_handle, mtk_crtc->cmdq_event);
+	/*
+	 * During an atomic update, Mediatek DRM disables/enables crtcs and
+	 * encoders first, and then applies plane state (enable/FB address)
+	 * changes.
+	 *
+	 * On boot, firmware may have enabled some overlays, with an FB that
+	 * is no longer mapped.
+	 *
+	 * Furthermore, drm/mediatek uses active_only, so state changes are
+	 * only applied to hardware when the corresponding crtc is enabled.
+	 * In other words, when disabling a CRTC, the CRTC's planes SW state
+	 * is disabled, but the hardware state is not actually changed at
+	 * disable time.  Thus, like at boot, the overlay hw state will be
+	 * 'enabled', but their scanout address is for a FB that has already
+	 * been unmapped.
+	 *
+	 * To avoid an iommu fault between when we enable the encoder and when
+	 * the new plane state is later applied to hardware in both of these
+	 * cases, we explicitly start all overlays in disabled state.  The
+	 * correct plane state for any enabled planes will be applied later in
+	 * the atomic update.
+	 */
+	for (i = 0; i < OVL_LAYER_NR; i++) {
+		struct mtk_plane_pending_state pending = { .enable = false };
+
+		mtk_ddp_comp_layer_config(mtk_crtc->ddp_comp[0], i,
+					  &pending, cmdq_handle);
+	}
+
 	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++) {
 		struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[i];
 
@@ -320,17 +347,7 @@ static int mtk_crtc_ddp_hw_init(struct mtk_drm_crtc *mtk_crtc)
 		mtk_ddp_comp_start(comp, cmdq_handle);
 	}
 
-	/* Initially configure all planes */
-	for (i = 0; i < OVL_LAYER_NR; i++) {
-		struct drm_plane *plane = &mtk_crtc->planes[i];
-		struct mtk_plane_state *plane_state;
-
-		plane_state = to_mtk_plane_state(plane->state);
-		mtk_ddp_comp_layer_config(mtk_crtc->ddp_comp[0], i,
-					  &plane_state->pending, cmdq_handle);
-	}
-	cmdq_rec_flush_async_callback(cmdq_handle, ddp_cmdq_cb,
-				      crtc, NULL, NULL);
+	cmdq_rec_flush(cmdq_handle);
 	cmdq_rec_destroy(cmdq_handle);
 
 	return 0;
@@ -465,27 +482,13 @@ static void mtk_drm_crtc_disable(struct drm_crtc *crtc)
 {
 	struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
 	struct mtk_ddp_comp *ovl = mtk_crtc->ddp_comp[0];
-	int i;
 
 	DRM_DEBUG_DRIVER("%s %d\n", __func__, crtc->base.id);
 	if (!mtk_crtc->enabled)
 		return;
 
-	/* Set all pending plane state to disabled */
-	for (i = 0; i < OVL_LAYER_NR; i++) {
-		struct drm_plane *plane = &mtk_crtc->planes[i];
-		struct mtk_plane_state *plane_state;
-
-		plane_state = to_mtk_plane_state(plane->state);
-		plane_state->pending.enable = false;
-		plane_state->pending.config = true;
-	}
-
+	/* Wait for any pending plane updates to complete */
 	flush_work(&mtk_crtc->cmdq_work);
-	wait_for_completion(&mtk_crtc->completion);
-
-	/* Wait for planes to be disabled */
-	mtk_drm_crtc_atomic_flush(crtc, NULL);
 	wait_for_completion(&mtk_crtc->completion);
 
 	mtk_crtc->enabled = false;

@@ -43,9 +43,8 @@ struct mtk_drm_private {
 	struct mtk_ddp_comp *ddp_comp[DDP_COMPONENT_ID_MAX];
 
 	struct {
-		struct drm_atomic_state *state;
-		struct work_struct work;
-		struct mutex lock;
+		uint32_t crtcs;
+		wait_queue_head_t crtcs_event;
 	} commit;
 
 	struct drm_atomic_state *suspend_state;

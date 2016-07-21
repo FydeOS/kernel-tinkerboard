@@ -42,6 +42,7 @@ struct mtk_atomic_state {
 	struct drm_atomic_state base;
 	struct list_head list;
 	struct kref kref;
+	struct work_struct work;
 };
 
 static inline struct mtk_atomic_state *to_mtk_state(struct drm_atomic_state *s)
@@ -88,6 +89,67 @@ void mtk_atomic_state_put_queue(struct drm_atomic_state *state)
 	schedule_work(&mtk_drm->unreference.work);
 }
 
+static uint32_t mtk_atomic_crtc_mask(struct drm_device *drm,
+				     struct drm_atomic_state *state)
+{
+	uint32_t crtc_mask;
+	int i;
+
+	for (i = 0, crtc_mask = 0; i < drm->mode_config.num_crtc; i++) {
+		struct drm_crtc *crtc = state->crtcs[i];
+
+		if (!crtc)
+			continue;
+		crtc_mask |= (1 << drm_crtc_index(crtc));
+	}
+
+	return crtc_mask;
+}
+
+/*
+ * Block until specified crtcs are no longer pending update, and atomically
+ * mark them as pending update.
+ */
+static int mtk_atomic_get_crtcs(struct drm_device *drm,
+				struct drm_atomic_state *state)
+{
+	struct mtk_drm_private *private = drm->dev_private;
+	uint32_t crtc_mask;
+	int ret;
+
+	crtc_mask = mtk_atomic_crtc_mask(drm, state);
+
+	/*
+	 * Wait for all pending updates to complete for the set of crtcs being
+	 * changed in this atomic commit
+	 */
+	spin_lock(&private->commit.crtcs_event.lock);
+	ret = wait_event_interruptible_locked(private->commit.crtcs_event,
+			!(private->commit.crtcs & crtc_mask));
+	if (ret == 0)
+		private->commit.crtcs |= crtc_mask;
+	spin_unlock(&private->commit.crtcs_event.lock);
+
+	return ret;
+}
+
+/*
+ * Mark specified crtcs as no longer pending update.
+ */
+static void mtk_atomic_put_crtcs(struct drm_device *drm,
+				 struct drm_atomic_state *state)
+{
+	struct mtk_drm_private *private = drm->dev_private;
+	uint32_t crtc_mask;
+
+	crtc_mask = mtk_atomic_crtc_mask(drm, state);
+
+	spin_lock(&private->commit.crtcs_event.lock);
+	private->commit.crtcs &= ~crtc_mask;
+	wake_up_all_locked(&private->commit.crtcs_event);
+	spin_unlock(&private->commit.crtcs_event.lock);
+}
+
 static void mtk_unreference_work(struct work_struct *work)
 {
 	struct mtk_drm_private *mtk_drm = container_of(work,
@@ -111,11 +173,12 @@ static void mtk_unreference_work(struct work_struct *work)
 }
 
 
-static void mtk_atomic_schedule(struct mtk_drm_private *private,
+static void mtk_atomic_schedule(struct drm_device *drm,
 				struct drm_atomic_state *state)
 {
-	private->commit.state = state;
-	schedule_work(&private->commit.work);
+	struct mtk_atomic_state *mtk_state = to_mtk_state(state);
+
+	schedule_work(&mtk_state->work);
 }
 
 static void mtk_atomic_wait_for_fences(struct drm_atomic_state *state)
@@ -128,11 +191,9 @@ static void mtk_atomic_wait_for_fences(struct drm_atomic_state *state)
 		mtk_fb_wait(plane->state->fb);
 }
 
-static void mtk_atomic_complete(struct mtk_drm_private *private,
+static void mtk_atomic_complete(struct drm_device *drm,
 				struct drm_atomic_state *state)
 {
-	struct drm_device *drm = private->drm;
-
 	mtk_atomic_wait_for_fences(state);
 
 	/*
@@ -155,39 +216,44 @@ static void mtk_atomic_complete(struct mtk_drm_private *private,
 	drm_atomic_helper_wait_for_vblanks(drm, state);
 
 	drm_atomic_helper_cleanup_planes(drm, state);
+
+	mtk_atomic_put_crtcs(drm, state);
+
 	mtk_atomic_state_put(state);
 }
 
 static void mtk_atomic_work(struct work_struct *work)
 {
-	struct mtk_drm_private *private = container_of(work,
-			struct mtk_drm_private, commit.work);
+	struct mtk_atomic_state *mtk_state = container_of(work,
+			struct mtk_atomic_state, work);
+	struct drm_atomic_state *state = &mtk_state->base;
+	struct drm_device *drm = state->dev;
 
-	mtk_atomic_complete(private, private->commit.state);
+	mtk_atomic_complete(drm, state);
 }
 
 static int mtk_atomic_commit(struct drm_device *drm,
 			     struct drm_atomic_state *state,
 			     bool async)
 {
-	struct mtk_drm_private *private = drm->dev_private;
 	int ret;
 
 	ret = drm_atomic_helper_prepare_planes(drm, state);
 	if (ret)
 		return ret;
 
-	mutex_lock(&private->commit.lock);
-	flush_work(&private->commit.work);
+	ret = mtk_atomic_get_crtcs(drm, state);
+	if (ret) {
+		drm_atomic_helper_cleanup_planes(drm, state);
+		return ret;
+	}
 
 	drm_atomic_helper_swap_state(drm, state);
 
 	if (async)
-		mtk_atomic_schedule(private, state);
+		mtk_atomic_schedule(drm, state);
 	else
-		mtk_atomic_complete(private, state);
-
-	mutex_unlock(&private->commit.lock);
+		mtk_atomic_complete(drm, state);
 
 	return 0;
 }
@@ -208,6 +274,7 @@ static struct drm_atomic_state *mtk_drm_atomic_state_alloc(
 
 	INIT_LIST_HEAD(&mtk_state->list);
 	kref_init(&mtk_state->kref);
+	INIT_WORK(&mtk_state->work, mtk_atomic_work);
 
 	return &mtk_state->base;
 }
@@ -323,6 +390,7 @@ static int mtk_drm_kms_init(struct drm_device *drm)
 	INIT_WORK(&private->unreference.work, mtk_unreference_work);
 	INIT_LIST_HEAD(&private->unreference.list);
 	spin_lock_init(&private->unreference.lock);
+	init_waitqueue_head(&private->commit.crtcs_event);
 
 	return 0;
 
@@ -481,9 +549,6 @@ static int mtk_drm_probe(struct platform_device *pdev)
 	private = devm_kzalloc(dev, sizeof(*private), GFP_KERNEL);
 	if (!private)
 		return -ENOMEM;
-
-	mutex_init(&private->commit.lock);
-	INIT_WORK(&private->commit.work, mtk_atomic_work);
 
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	private->config_regs = devm_ioremap_resource(dev, mem);

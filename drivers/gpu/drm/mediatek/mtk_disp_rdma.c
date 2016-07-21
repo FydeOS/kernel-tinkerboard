@@ -19,7 +19,6 @@
 #include <linux/platform_device.h>
 #include <soc/mediatek/cmdq.h>
 
-#include "mtk_drm_crtc.h"
 #include "mtk_drm_ddp_comp.h"
 
 static phys_addr_t addr_va2pa(void __iomem *va)
@@ -55,61 +54,10 @@ static phys_addr_t addr_va2pa(void __iomem *va)
 /**
  * struct mtk_disp_rdma - DISP_RDMA driver structure
  * @ddp_comp - structure containing type enum and hardware resources
- * @crtc - associated crtc to report irq events to
  */
 struct mtk_disp_rdma {
 	struct mtk_ddp_comp		ddp_comp;
-	struct drm_crtc			*crtc;
 };
-
-static irqreturn_t mtk_disp_rdma_irq_handler(int irq, void *dev_id)
-{
-	struct mtk_disp_rdma *priv = dev_id;
-	struct mtk_ddp_comp *rdma = &priv->ddp_comp;
-
-	/* Clear frame completion interrupt */
-	writel(0x0, rdma->regs + DISP_REG_RDMA_INT_STATUS);
-
-	if (!priv->crtc)
-		return IRQ_NONE;
-
-	mtk_crtc_target_line_irq(priv->crtc);
-
-	return IRQ_HANDLED;
-}
-
-static void rdma_update_bits(struct mtk_ddp_comp *comp, unsigned int reg,
-			     unsigned int mask, unsigned int val)
-{
-	unsigned int tmp = readl(comp->regs + reg);
-
-	tmp = (tmp & ~mask) | (val & mask);
-	writel(tmp, comp->regs + reg);
-}
-
-static void mtk_rdma_enable_vblank(struct mtk_ddp_comp *comp,
-				   struct drm_crtc *crtc,
-				   struct cmdq_rec *handle)
-{
-	struct mtk_disp_rdma *priv = container_of(comp, struct mtk_disp_rdma,
-						  ddp_comp);
-
-	priv->crtc = crtc;
-	rdma_update_bits(comp, DISP_REG_RDMA_INT_ENABLE,
-			 RDMA_TARGET_LINE_INT,
-			 RDMA_TARGET_LINE_INT);
-}
-
-static void mtk_rdma_disable_vblank(struct mtk_ddp_comp *comp,
-				    struct cmdq_rec *handle)
-{
-	struct mtk_disp_rdma *priv = container_of(comp, struct mtk_disp_rdma,
-						  ddp_comp);
-
-	priv->crtc = NULL;
-	rdma_update_bits(comp, DISP_REG_RDMA_INT_ENABLE,
-			 RDMA_TARGET_LINE_INT, 0);
-}
 
 static void mtk_rdma_start(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
 {
@@ -129,7 +77,6 @@ static void mtk_rdma_config(struct mtk_ddp_comp *comp, unsigned int width,
 {
 	unsigned int threshold;
 	unsigned int reg;
-	unsigned int target_line_number;
 
 	cmdq_write_mask(handle, width, comp->regs + DISP_REG_RDMA_SIZE_CON_0,
 			0x1fff);
@@ -147,18 +94,12 @@ static void mtk_rdma_config(struct mtk_ddp_comp *comp, unsigned int width,
 	      RDMA_FIFO_PSEUDO_SIZE(SZ_8K) |
 	      RDMA_OUTPUT_VALID_FIFO_THRESHOLD(threshold);
 	cmdq_write(handle, reg, comp->regs + DISP_REG_RDMA_FIFO_CON);
-
-	target_line_number = height * 4 / 5;
-	cmdq_write_mask(handle, target_line_number,
-			comp->regs + DISP_REG_RDMA_TARGET_LINE, 0xfffff);
 }
 
 static const struct mtk_ddp_comp_funcs mtk_disp_rdma_funcs = {
 	.config = mtk_rdma_config,
 	.start = mtk_rdma_start,
 	.stop = mtk_rdma_stop,
-	.enable_vblank = mtk_rdma_enable_vblank,
-	.disable_vblank = mtk_rdma_disable_vblank,
 };
 
 static int mtk_disp_rdma_bind(struct device *dev, struct device *master,
@@ -219,17 +160,6 @@ static int mtk_disp_rdma_probe(struct platform_device *pdev)
 				&mtk_disp_rdma_funcs);
 	if (ret) {
 		dev_err(dev, "Failed to initialize component: %d\n", ret);
-		return ret;
-	}
-
-	/* Disable and clear pending interrupts */
-	writel(0x0, priv->ddp_comp.regs + DISP_REG_RDMA_INT_ENABLE);
-	writel(0x0, priv->ddp_comp.regs + DISP_REG_RDMA_INT_STATUS);
-
-	ret = devm_request_irq(dev, irq, mtk_disp_rdma_irq_handler,
-			       IRQF_TRIGGER_NONE, dev_name(dev), priv);
-	if (ret < 0) {
-		dev_err(dev, "Failed to request irq %d: %d\n", irq, ret);
 		return ret;
 	}
 

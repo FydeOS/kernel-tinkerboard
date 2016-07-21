@@ -56,7 +56,6 @@ struct mtk_drm_crtc {
 	struct mtk_disp_mutex		*mutex;
 	unsigned int			ddp_comp_nr;
 	struct mtk_ddp_comp		**ddp_comp;
-	struct mtk_ddp_comp		*rdma;
 };
 
 struct mtk_crtc_state {
@@ -427,7 +426,6 @@ static void mtk_drm_crtc_enable(struct drm_crtc *crtc)
 	}
 
 	drm_crtc_vblank_on(crtc);
-	mtk_ddp_comp_enable_vblank(mtk_crtc->rdma, &mtk_crtc->base, NULL);
 	mtk_crtc->enabled = true;
 }
 
@@ -444,7 +442,6 @@ static void mtk_drm_crtc_disable(struct drm_crtc *crtc)
 	wait_for_completion(&mtk_crtc->completion);
 
 	mtk_crtc->enabled = false;
-	mtk_ddp_comp_disable_vblank(mtk_crtc->rdma, NULL);
 	drm_crtc_vblank_off(crtc);
 	mtk_crtc_ddp_hw_fini(mtk_crtc);
 	mtk_smi_larb_put(ovl->larb_dev);
@@ -522,10 +519,6 @@ void mtk_crtc_vblank_irq(struct drm_crtc *crtc)
 	drm_crtc_handle_vblank(&mtk_crtc->base);
 }
 
-void mtk_crtc_target_line_irq(struct drm_crtc *crtc)
-{
-}
-
 int mtk_drm_crtc_create(struct drm_device *drm_dev,
 			const enum mtk_ddp_comp_id *path, unsigned int path_len)
 {
@@ -591,9 +584,6 @@ int mtk_drm_crtc_create(struct drm_device *drm_dev,
 		}
 
 		mtk_crtc->ddp_comp[i] = comp;
-
-		if (mtk_crtc->ddp_comp[i]->type == MTK_DISP_RDMA)
-			mtk_crtc->rdma = mtk_crtc->ddp_comp[i];
 	}
 
 	for (zpos = 0; zpos < OVL_LAYER_NR; zpos++) {

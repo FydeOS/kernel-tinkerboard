@@ -30,58 +30,13 @@ static const u32 formats[] = {
 	DRM_FORMAT_RGB565,
 };
 
-static void mtk_plane_reset(struct drm_plane *plane)
-{
-	struct mtk_plane_state *state;
-
-	if (plane->state) {
-		__drm_atomic_helper_plane_destroy_state(plane, plane->state);
-
-		state = to_mtk_plane_state(plane->state);
-		memset(state, 0, sizeof(*state));
-	} else {
-		state = kzalloc(sizeof(*state), GFP_KERNEL);
-		if (!state)
-			return;
-		plane->state = &state->base;
-	}
-
-	state->base.plane = plane;
-	state->pending.format = DRM_FORMAT_RGB565;
-}
-
-static struct drm_plane_state *mtk_plane_duplicate_state(struct drm_plane *plane)
-{
-	struct mtk_plane_state *old_state = to_mtk_plane_state(plane->state);
-	struct mtk_plane_state *state;
-
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
-	if (!state)
-		return NULL;
-
-	__drm_atomic_helper_plane_duplicate_state(plane, &state->base);
-
-	WARN_ON(state->base.plane != plane);
-
-	state->pending = old_state->pending;
-
-	return &state->base;
-}
-
-static void mtk_drm_plane_destroy_state(struct drm_plane *plane,
-					struct drm_plane_state *state)
-{
-	__drm_atomic_helper_plane_destroy_state(plane, state);
-	kfree(to_mtk_plane_state(state));
-}
-
 static const struct drm_plane_funcs mtk_plane_funcs = {
 	.update_plane = drm_atomic_helper_update_plane,
 	.disable_plane = drm_atomic_helper_disable_plane,
 	.destroy = drm_plane_cleanup,
-	.reset = mtk_plane_reset,
-	.atomic_duplicate_state = mtk_plane_duplicate_state,
-	.atomic_destroy_state = mtk_drm_plane_destroy_state,
+	.reset = drm_atomic_helper_plane_reset,
+	.atomic_duplicate_state = drm_atomic_helper_plane_duplicate_state,
+	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
 };
 
 static int mtk_plane_atomic_check(struct drm_plane *plane,

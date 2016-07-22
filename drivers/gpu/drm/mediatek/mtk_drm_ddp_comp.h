@@ -21,7 +21,6 @@ struct device;
 struct device_node;
 struct drm_crtc;
 struct drm_device;
-struct mtk_plane_state;
 struct drm_crtc_state;
 
 enum mtk_ddp_comp_type {

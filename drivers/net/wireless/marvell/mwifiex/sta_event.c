@@ -873,6 +873,12 @@ int mwifiex_process_sta_event(struct mwifiex_private *priv)
 		mwifiex_bt_coex_wlan_param_update_event(priv,
 							adapter->event_skb);
 		break;
+	case EVENT_RXBA_SYNC:
+		dev_dbg(adapter->dev, "EVENT: RXBA_SYNC\n");
+		mwifiex_11n_rxba_sync_event(priv, adapter->event_body,
+					    adapter->event_skb->len -
+					    sizeof(eventcause));
+		break;
 	/* Debugging event; not used, but let's not print an ERROR for it. */
 	case EVENT_UNKNOWN_DEBUG:
 		mwifiex_dbg(adapter, EVENT, "event: debug\n");

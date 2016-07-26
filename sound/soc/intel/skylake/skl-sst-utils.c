@@ -145,7 +145,8 @@ EXPORT_SYMBOL_GPL(snd_skl_get_module_info);
  * Parse the firmware binary to get the UUID, module id
  * and loadable flags
  */
-int snd_skl_parse_uuids(struct sst_dsp *ctx, unsigned int offset)
+int snd_skl_parse_uuids(struct sst_dsp *ctx, const struct firmware *fw,
+			unsigned int offset, int index)
 {
 	struct adsp_fw_hdr *adsp_hdr;
 	struct adsp_module_entry *mod_entry;
@@ -158,8 +159,8 @@ int snd_skl_parse_uuids(struct sst_dsp *ctx, unsigned int offset)
 	unsigned int safe_file;
 
 	/* Get the FW pointer to derive ADSP header */
-	stripped_fw.data = ctx->fw->data;
-	stripped_fw.size = ctx->fw->size;
+	stripped_fw.data = fw->data;
+	stripped_fw.size = fw->size;
 
 	skl_dsp_strip_extended_manifest(&stripped_fw);
 
@@ -210,7 +211,7 @@ int snd_skl_parse_uuids(struct sst_dsp *ctx, unsigned int offset)
 		uuid_bin = (uuid_le *)mod_entry->uuid.id;
 		memcpy(&module->uuid, uuid_bin, sizeof(module->uuid));
 
-		module->id = i;
+		module->id = (i | (index << 12));
 		module->is_loadable = mod_entry->type.load_type;
 
 		list_add_tail(&module->list, &skl->uuid_list);

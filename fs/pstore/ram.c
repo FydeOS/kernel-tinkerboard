@@ -517,33 +517,6 @@ void notrace ramoops_console_write_buf(const char *buf, size_t size)
 	persistent_ram_write(cxt->cprz, buf, size);
 }
 
-static int ramoops_parse_dt_compat(struct platform_device *pdev,
-				   struct ramoops_platform_data *pdata)
-{
-	struct device_node *node = pdev->dev.of_node;
-	const __be32 *addrp;
-	u64 size;
-	u32 val;
-
-	addrp = of_get_address(node, 0, &size, NULL);
-	if (!addrp)
-		return -ENODEV;
-	pdata->mem_address = of_translate_address(node, addrp);
-	pdata->mem_size = size;
-
-	if (of_property_read_u32(node, "record-size", &val))
-		return -ENODEV;
-
-	pdata->record_size = val;
-	pdata->console_size = val;
-	pdata->pmsg_size = val;
-
-	if (of_get_property(node, "dump-oops", NULL))
-		pdata->dump_oops = 1;
-
-	return 0;
-}
-
 static int ramoops_parse_dt_size(struct platform_device *pdev,
 				 const char *propname, u32 *value)
 {
@@ -570,37 +543,26 @@ static int ramoops_parse_dt(struct platform_device *pdev,
 			    struct ramoops_platform_data *pdata)
 {
 	struct device_node *of_node = pdev->dev.of_node;
-	struct device_node *mem_region;
-	struct resource res;
+	struct resource *res;
 	u32 value;
 	int ret;
 
 	dev_dbg(&pdev->dev, "using Device Tree\n");
 
-	mem_region = of_parse_phandle(of_node, "memory-region", 0);
-	if (!mem_region) {
-		dev_info(&pdev->dev,
-			 "no memory-region phandle, trying compatibility mode\n");
-		ret = ramoops_parse_dt_compat(pdev, pdata);
-		if (ret)
-			dev_err(&pdev->dev,
-				"failed to parse backward compatible pstore data\n");
-		return ret;
-	}
-
-	ret = of_address_to_resource(mem_region, 0, &res);
-	of_node_put(mem_region);
-	if (ret) {
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!res) {
 		dev_err(&pdev->dev,
-			"failed to translate memory-region to resource: %d\n",
-			ret);
-		return ret;
+			"failed to locate DT /reserved-memory resource\n");
+		return -EINVAL;
 	}
 
-	pdata->mem_size = resource_size(&res);
-	pdata->mem_address = res.start;
+	pdata->mem_size = resource_size(res);
+	pdata->mem_address = res->start;
 	pdata->mem_type = of_property_read_bool(of_node, "unbuffered");
-	pdata->dump_oops = !of_property_read_bool(of_node, "no-dump-oops");
+	/* support dump-oops for backward compatibility */
+	pdata->dump_oops = of_property_read_bool(of_node, "dump-oops");
+	if (!pdata->dump_oops)
+		pdata->dump_oops = !of_property_read_bool(of_node, "no-dump-oops");
 
 #define parse_size(name, field) {					\
 		ret = ramoops_parse_dt_size(pdev, name, &value);	\
@@ -614,6 +576,13 @@ static int ramoops_parse_dt(struct platform_device *pdev,
 	parse_size("ftrace-size", pdata->ftrace_size);
 	parse_size("pmsg-size", pdata->pmsg_size);
 	parse_size("ecc-size", pdata->ecc_info.ecc_size);
+
+	/* backward compatibility */
+	if (pdata->console_size == 0 && pdata->ftrace_size == 0 &&
+	    pdata->pmsg_size == 0 && pdata->ecc_info.ecc_size == 0) {
+		pdata->console_size = pdata->record_size;
+		pdata->pmsg_size = pdata->record_size;
+	}
 
 #undef parse_size
 

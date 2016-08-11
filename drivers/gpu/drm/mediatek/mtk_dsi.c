@@ -731,15 +731,14 @@ static void mtk_dsi_destroy_conn_enc(struct mtk_dsi *dsi)
 		drm_connector_cleanup(&dsi->conn);
 }
 
-static void mtk_dsi_ddp_start(struct mtk_ddp_comp *comp,
-			      struct cmdq_rec *handle)
+static void mtk_dsi_ddp_prepare(struct mtk_ddp_comp *comp)
 {
 	struct mtk_dsi *dsi = container_of(comp, struct mtk_dsi, ddp_comp);
 
 	mtk_dsi_poweron(dsi);
 }
 
-static void mtk_dsi_ddp_stop(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
+static void mtk_dsi_ddp_unprepare(struct mtk_ddp_comp *comp)
 {
 	struct mtk_dsi *dsi = container_of(comp, struct mtk_dsi, ddp_comp);
 
@@ -747,8 +746,8 @@ static void mtk_dsi_ddp_stop(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
 }
 
 static const struct mtk_ddp_comp_funcs mtk_dsi_funcs = {
-	.start = mtk_dsi_ddp_start,
-	.stop = mtk_dsi_ddp_stop,
+	.prepare = mtk_dsi_ddp_prepare,
+	.unprepare = mtk_dsi_ddp_unprepare,
 };
 
 static int mtk_dsi_host_attach(struct mipi_dsi_host *host,

@@ -43,7 +43,6 @@ struct mtk_drm_crtc {
 	struct drm_crtc			base;
 	bool				enabled;
 
-	struct completion		completion;
 	bool				cmdq_needs_event;
 	struct drm_pending_vblank_event	*cmdq_vblank_event;
 
@@ -205,8 +204,6 @@ static int ddp_cmdq_cb(void *data)
 	struct drm_crtc *crtc = crtc_state->crtc;
 	struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
 
-	complete(&mtk_crtc->completion);
-
 	if (mtk_crtc->cmdq_needs_event) {
 		mtk_drm_crtc_finish_page_flip(mtk_crtc);
 		mtk_crtc->cmdq_needs_event = false;
@@ -281,6 +278,8 @@ static int mtk_crtc_ddp_hw_init(struct mtk_drm_crtc *mtk_crtc)
 	mtk_disp_mutex_add_comp(mtk_crtc->mutex, mtk_crtc->ddp_comp[i]->id);
 	mtk_disp_mutex_enable(mtk_crtc->mutex);
 
+	drm_crtc_vblank_on(crtc);
+
 	DRM_DEBUG_DRIVER("ddp_disp_path_power_on %dx%d\n", width, height);
 	cmdq_rec_create(gce_dev, mtk_crtc->cmdq_engine_flag, &cmdq_handle);
 	/*
@@ -346,6 +345,8 @@ static void mtk_crtc_ddp_hw_fini(struct mtk_drm_crtc *mtk_crtc)
 		mtk_ddp_comp_stop(mtk_crtc->ddp_comp[i], cmdq_handle);
 	cmdq_rec_flush(cmdq_handle);
 	cmdq_rec_destroy(cmdq_handle);
+
+	drm_crtc_vblank_off(&mtk_crtc->base);
 
 	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++)
 		mtk_disp_mutex_remove_comp(mtk_crtc->mutex,
@@ -429,7 +430,6 @@ static void mtk_drm_crtc_enable(struct drm_crtc *crtc)
 		return;
 	}
 
-	drm_crtc_vblank_on(crtc);
 	mtk_crtc->enabled = true;
 }
 
@@ -442,11 +442,7 @@ static void mtk_drm_crtc_disable(struct drm_crtc *crtc)
 	if (!mtk_crtc->enabled)
 		return;
 
-	/* Wait for any pending plane updates to complete */
-	wait_for_completion(&mtk_crtc->completion);
-
 	mtk_crtc->enabled = false;
-	drm_crtc_vblank_off(crtc);
 	mtk_crtc_ddp_hw_fini(mtk_crtc);
 	mtk_smi_larb_put(ovl->larb_dev);
 }
@@ -470,7 +466,6 @@ static void mtk_drm_crtc_atomic_begin(struct drm_crtc *crtc,
 		mtk_crtc->cmdq_needs_event = true;
 	}
 
-	reinit_completion(&mtk_crtc->completion);
 	cmdq_rec_create(gce_dev, mtk_crtc->cmdq_engine_flag,
 			&state->cmdq_handle);
 	cmdq_rec_clear_event(state->cmdq_handle, mtk_crtc->cmdq_event);
@@ -608,9 +603,6 @@ int mtk_drm_crtc_create(struct drm_device *drm_dev,
 	drm_crtc_enable_color_mgmt(&mtk_crtc->base, 0, false, MTK_LUT_SIZE);
 	priv->crtc[pipe] = &mtk_crtc->base;
 	priv->num_pipes++;
-
-	init_completion(&mtk_crtc->completion);
-	complete(&mtk_crtc->completion);
 
 	if (drm_crtc_index(&mtk_crtc->base) == 0) {
 		mtk_crtc->cmdq_engine_flag = (BIT_ULL(CMDQ_ENG_DISP_OVL0) |

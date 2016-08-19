@@ -32,6 +32,7 @@
 #include <drm_edid.h>
 #include <drm_mipi_dsi.h>
 
+#define PAGE1_VSTART		0x6b
 #define PAGE2_SPI_CFG3		0x82
 #define I2C_TO_SPI_RESET	0x20
 #define PAGE2_ROMADD_BYTE1	0x8e
@@ -56,6 +57,8 @@
 #define PAGE2_ENCTLSPI_WR	0xda
 #define PAGE2_I2C_BYPASS	0xea
 #define I2C_BYPASS_EN		0xd0
+#define PAGE2_MCS_EN		0xf3
+#define MCS_EN			BIT(0)
 #define PAGE3_SET_ADD		0xfe
 #define PAGE3_SET_VAL		0xff
 #define VDO_CTL_ADD		0x13
@@ -210,8 +213,9 @@ static void ps8640_pre_enable(struct drm_bridge *bridge)
 {
 	struct ps8640 *ps_bridge = bridge_to_ps8640(bridge);
 	struct i2c_client *client = ps_bridge->page[2];
+	struct i2c_client *page1 = ps_bridge->page[1];
 	int err;
-	u8 set_vdo_done;
+	u8 set_vdo_done, mcs_en, vstart;
 	ktime_t timeout;
 
 	if (ps_bridge->in_fw_update)
@@ -258,7 +262,20 @@ static void ps8640_pre_enable(struct drm_bridge *bridge)
 		msleep(20);
 	}
 
-	usleep_range(3000, 3500);
+	msleep(50);
+
+	ps8640_read(page1, PAGE1_VSTART, &vstart, 1);
+	DRM_INFO("PS8640 PAGE1.0x6B = 0x%x\n", vstart);
+
+	/**
+	 * The Manufacturer Command Set (MCS) is a device dependent interface
+	 * intended for factory programming of the display module default
+	 * parameters. Once the display module is configured, the MCS shall be
+	 * disabled by the manufacturer. Once disabled, all MCS commands are
+	 * ignored by the display interface.
+	 */
+	ps8640_read(client, PAGE2_MCS_EN, &mcs_en, 1);
+	ps8640_write_byte(client, PAGE2_MCS_EN, mcs_en & ~MCS_EN);
 
 	if (ps_bridge->info.version == 0)
 		ps8640_get_mcu_fw_version(ps_bridge);

@@ -17,6 +17,8 @@
 
 #include <linux/devfreq.h>
 
+#define ROCKCHIP_DMC_MIN_VBLANK_US 300
+
 struct rk3399_dmcfreq {
 	struct device *dev;
 	struct devfreq *devfreq;

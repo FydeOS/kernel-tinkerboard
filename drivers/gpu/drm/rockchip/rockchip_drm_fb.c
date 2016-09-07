@@ -19,6 +19,7 @@
 #include <drm/drm_atomic.h>
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_crtc_helper.h>
+#include <soc/rockchip/rk3399_dmc.h>
 
 #include "rockchip_drm_drv.h"
 #include "rockchip_drm_gem.h"
@@ -233,13 +234,43 @@ static void wait_for_fences(struct drm_device *dev,
 	}
 }
 
+static uint32_t get_vblank_time_us(struct drm_display_mode *mode)
+{
+	uint64_t vblank_time = mode->vtotal - mode->vdisplay;
+
+	vblank_time *= (uint64_t)USEC_PER_SEC * mode->htotal;
+	do_div(vblank_time, mode->clock * 1000);
+
+	return vblank_time;
+}
+
 static void
 rockchip_atomic_commit_complete(struct rockchip_atomic_commit *commit)
 {
 	struct drm_atomic_state *state = commit->state;
 	struct drm_device *dev = commit->dev;
+	struct rockchip_drm_private *priv = dev->dev_private;
+	struct drm_crtc *crtc;
+	int num_active_crtcs = 0;
+	bool force_dmc_off = false;
+
+	drm_for_each_crtc(crtc, dev) {
+		if (crtc->state->active) {
+			num_active_crtcs++;
+			if (get_vblank_time_us(&crtc->state->adjusted_mode) <
+			    ROCKCHIP_DMC_MIN_VBLANK_US)
+				force_dmc_off = true;
+		}
+	}
 
 	wait_for_fences(dev, state);
+
+	/* If disabling dmc, disable it before committing mode set changes. */
+	if ((force_dmc_off || num_active_crtcs > 1) &&
+	    !priv->dmc_disable_flag) {
+		rockchip_drm_disable_dmc(priv);
+		priv->dmc_disable_flag = true;
+	}
 
 	/*
 	 * Rockchip crtc support runtime PM, can't update display planes
@@ -271,6 +302,11 @@ rockchip_atomic_commit_complete(struct rockchip_atomic_commit *commit)
 
 	drm_atomic_helper_cleanup_planes(dev, state);
 
+	if (!force_dmc_off && num_active_crtcs <= 1 && priv->dmc_disable_flag) {
+		rockchip_drm_enable_dmc(priv);
+		priv->dmc_disable_flag = false;
+	}
+
 	drm_atomic_state_free(state);
 }
 
@@ -279,7 +315,11 @@ void rockchip_drm_atomic_work(struct kthread_work *work)
 	struct rockchip_atomic_commit *commit = container_of(work,
 					struct rockchip_atomic_commit, work);
 
+	drm_modeset_lock_all(commit->dev);
+	mutex_lock(&commit->lock);
 	rockchip_atomic_commit_complete(commit);
+	mutex_unlock(&commit->lock);
+	drm_modeset_unlock_all(commit->dev);
 }
 
 int rockchip_drm_atomic_commit(struct drm_device *dev,

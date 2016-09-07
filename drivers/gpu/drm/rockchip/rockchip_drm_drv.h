@@ -85,6 +85,9 @@ struct rockchip_drm_private {
 	struct list_head psr_list;
 	struct mutex psr_list_lock;
 
+	struct devfreq *devfreq;
+	struct devfreq_event_dev *devfreq_event_dev;
+	bool dmc_disable_flag;
 	struct drm_atomic_state *state;
 };
 
@@ -98,5 +101,8 @@ void rockchip_drm_dma_detach_device(struct drm_device *drm_dev,
 				    struct device *dev);
 int rockchip_drm_wait_line_flag(struct drm_crtc *crtc, unsigned int line_num,
 				unsigned int mstimeout);
+
+void rockchip_drm_enable_dmc(struct rockchip_drm_private *priv);
+void rockchip_drm_disable_dmc(struct rockchip_drm_private *priv);
 
 #endif /* _ROCKCHIP_DRM_DRV_H_ */

@@ -17,6 +17,8 @@
 #include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_fb_helper.h>
+#include <linux/devfreq.h>
+#include <linux/devfreq-event.h>
 #include <linux/dma-mapping.h>
 #include <linux/dma-iommu.h>
 #include <linux/pm_runtime.h>
@@ -74,6 +76,56 @@ void rockchip_drm_dma_detach_device(struct drm_device *drm_dev,
 		return;
 
 	iommu_detach_device(domain, dev);
+}
+
+void rockchip_drm_enable_dmc(struct rockchip_drm_private *priv)
+{
+	if (priv->devfreq_event_dev)
+		devfreq_event_enable_edev(priv->devfreq_event_dev);
+	if (priv->devfreq)
+		devfreq_resume_device(priv->devfreq);
+}
+EXPORT_SYMBOL(rockchip_drm_enable_dmc);
+
+void rockchip_drm_disable_dmc(struct rockchip_drm_private *priv)
+{
+	if (priv->devfreq_event_dev)
+		devfreq_event_disable_edev(priv->devfreq_event_dev);
+	if (priv->devfreq)
+		devfreq_suspend_device(priv->devfreq);
+}
+EXPORT_SYMBOL(rockchip_drm_disable_dmc);
+
+static int rockchip_initialize_devfreq(struct device *dev,
+				       struct rockchip_drm_private *priv)
+{
+	struct devfreq *devfreq;
+	struct devfreq_event_dev *edev;
+	int ret;
+
+	devfreq = devfreq_get_devfreq_by_phandle(dev, 0);
+	if (IS_ERR(devfreq)) {
+		ret = PTR_ERR(devfreq);
+		if (ret == -ENODEV) {
+			DRM_DEV_INFO(dev, "devfreq missing, skip\n");
+			return 0;
+		}
+		return ret;
+	}
+
+	edev = devfreq_event_get_edev_by_phandle(devfreq->dev.parent, 0);
+	if (IS_ERR(edev)) {
+		ret = PTR_ERR(edev);
+		if (ret == -ENODEV) {
+			DRM_DEV_INFO(dev, "devfreq edev missing, skip\n");
+			return 0;
+		}
+		return ret;
+	}
+
+	priv->devfreq = devfreq;
+	priv->devfreq_event_dev = edev;
+	return 0;
 }
 
 int rockchip_register_crtc_funcs(struct drm_crtc *crtc,
@@ -199,6 +251,10 @@ static int rockchip_drm_load(struct drm_device *drm_dev, unsigned long flags)
 	private = devm_kzalloc(drm_dev->dev, sizeof(*private), GFP_KERNEL);
 	if (!private)
 		return -ENOMEM;
+
+	ret = rockchip_initialize_devfreq(dev, private);
+	if (ret)
+		return ret;
 
 	ret = rockchip_initialize_kthread(&private->commit);
 	if (ret)

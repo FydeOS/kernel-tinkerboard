@@ -91,7 +91,6 @@
 
 enum vop_pending {
 	VOP_PENDING_FB_UNREF,
-	VOP_PENDING_EVENT,
 };
 
 struct vop_win {
@@ -107,6 +106,9 @@ struct vop {
 	bool is_enabled;
 
 	struct completion dsp_hold_completion;
+
+	/* protected by dev->event_lock */
+	struct drm_pending_vblank_event *event;
 
 	struct drm_flip_work fb_unref_work;
 	unsigned long pending;
@@ -988,11 +990,10 @@ static void vop_crtc_cancel_pending_vblank(struct drm_crtc *crtc,
 	unsigned long flags;
 
 	spin_lock_irqsave(&drm->event_lock, flags);
-	e = crtc->state->event;
+	e = vop->event;
 	if (e && e->base.file_priv == file_priv) {
-		crtc->state->event = NULL;
-		if (test_and_clear_bit(VOP_PENDING_EVENT, &vop->pending))
-			drm_crtc_vblank_put(crtc);
+		vop->event = NULL;
+		drm_crtc_vblank_put(crtc);
 
 		kfree(&e->base);
 		file_priv->event_space += sizeof(e->event);
@@ -1162,8 +1163,9 @@ static void vop_crtc_atomic_flush(struct drm_crtc *crtc,
 
 	spin_lock_irqsave(&drm->event_lock, flags);
 	if (crtc->state->event) {
+		vop->event = crtc->state->event;
+		crtc->state->event = NULL;
 		WARN_ON(drm_crtc_vblank_get(crtc) != 0);
-		set_bit(VOP_PENDING_EVENT, &vop->pending);
 	}
 	spin_unlock_irqrestore(&drm->event_lock, flags);
 
@@ -1257,10 +1259,10 @@ static void vop_handle_vblank(struct vop *vop)
 	unsigned long flags;
 
 	spin_lock_irqsave(&drm->event_lock, flags);
-	if (test_and_clear_bit(VOP_PENDING_EVENT, &vop->pending)) {
-		drm_crtc_send_vblank_event(crtc, crtc->state->event);
+	if (vop->event) {
+		drm_crtc_send_vblank_event(crtc, vop->event);
 		drm_crtc_vblank_put(crtc);
-		crtc->state->event = NULL;
+		vop->event = NULL;
 	}
 	spin_unlock_irqrestore(&drm->event_lock, flags);
 

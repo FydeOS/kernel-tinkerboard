@@ -759,7 +759,7 @@ ap_i2c_audio: &i2c8 {
 &pcie0 {
 	status = "okay";
 	pinctrl-names = "default";
-	pinctrl-0 = <&pcie_clkreqn>, <&wifi_perst_l>;
+	pinctrl-0 = <&pcie_clkreqn_cpm>, <&wifi_perst_l>;
 	ep-gpios = <&gpio2 27 GPIO_ACTIVE_HIGH>;
 
 	rockchip,disable-gen2;
@@ -1230,6 +1230,17 @@ ap_i2c_audio: &i2c8 {
 	write-protect {
 		ap_fw_wp: ap-fw-wp {
 			rockchip,pins = <1 18 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	pcie {
+		pcie_clkreqn_cpm: pci-clkreqn-cpm {
+			/*
+			 * Since our pcie doesn't support ClockPM(CPM), we want
+			 * to hack this as gpio, so the EP could be able to
+			 * de-assert it along and make ClockPM(CPM) work.
+			 */
+			rockchip,pins = <2 26 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
 };

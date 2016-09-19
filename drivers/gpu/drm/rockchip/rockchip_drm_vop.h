@@ -15,6 +15,10 @@
 #ifndef _ROCKCHIP_DRM_VOP_H
 #define _ROCKCHIP_DRM_VOP_H
 
+#define AFBDC_FMT_RGB565	0x0
+#define AFBDC_FMT_U8U8U8U8	0x5
+#define AFBDC_FMT_U8U8U8	0x4
+
 enum vop_data_format {
 	VOP_FMT_ARGB8888 = 0,
 	VOP_FMT_RGB888,
@@ -66,6 +70,16 @@ struct vop_ctrl {
 	struct vop_reg line_flag_num[2];
 
 	struct vop_reg cfg_done;
+};
+
+struct vop_afbdc {
+	struct vop_reg enable;
+	struct vop_reg win_sel;
+	struct vop_reg format;
+	struct vop_reg hreg_block_split;
+	struct vop_reg pic_size;
+	struct vop_reg hdr_ptr;
+	struct vop_reg rstn;
 };
 
 struct vop_intr {
@@ -148,6 +162,7 @@ struct vop_data {
 	unsigned int table_size;
 	const struct vop_ctrl *ctrl;
 	const struct vop_intr *intr;
+	const struct vop_afbdc *afbdc;
 	const struct vop_win_data *win;
 	unsigned int win_size;
 };

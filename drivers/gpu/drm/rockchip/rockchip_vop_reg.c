@@ -328,6 +328,16 @@ static const struct vop_intr rk3399_vop_intr = {
 	.clear = VOP_REG_MASK(RK3399_INTR_CLEAR0, 0xffff, 0),
 };
 
+static const struct vop_afbdc rk3399_vop_afbdc = {
+	.rstn = VOP_REG(RK3399_AFBCD0_CTRL, 0x1, 3),
+	.enable = VOP_REG(RK3399_AFBCD0_CTRL, 0x1, 0),
+	.win_sel = VOP_REG(RK3399_AFBCD0_CTRL, 0x3, 1),
+	.format = VOP_REG(RK3399_AFBCD0_CTRL, 0x1f, 16),
+	.hreg_block_split = VOP_REG(RK3399_AFBCD0_CTRL, 0x1, 21),
+	.hdr_ptr = VOP_REG(RK3399_AFBCD0_HDR_PTR, 0xffffffff, 0),
+	.pic_size = VOP_REG(RK3399_AFBCD0_PIC_SIZE, 0xffffffff, 0),
+};
+
 static const struct vop_reg_data rk3399_init_reg_table[] = {
 	{RK3399_SYS_CTRL, 0x2000f800},
 	{RK3399_DSP_CTRL0, 0x00000000},
@@ -347,6 +357,7 @@ static const struct vop_data rk3399_vop_big = {
 	.table_size = ARRAY_SIZE(rk3399_init_reg_table),
 	.intr = &rk3399_vop_intr,
 	.ctrl = &rk3399_ctrl_data,
+	.afbdc = &rk3399_vop_afbdc,
 	/*
 	 * rk3399 vop big windows register layout is same as rk3288.
 	 */

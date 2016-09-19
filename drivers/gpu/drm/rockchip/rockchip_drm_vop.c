@@ -60,6 +60,9 @@
 		REG_SET(x, win->base, win->phy->scl->ext->name, v, RELAXED)
 #define VOP_CTRL_SET(x, name, v) \
 		REG_SET(x, 0, (x)->data->ctrl->name, v, NORMAL)
+#define VOP_AFBDC_SET(x, name, v) \
+		if (vop->data->afbdc) \
+			REG_SET(x, 0, (x)->data->afbdc->name, v, RELAXED)
 
 #define VOP_INTR_GET(vop, name) \
 		vop_read_reg(vop, 0, &vop->data->ctrl->name)
@@ -104,6 +107,8 @@ struct vop {
 	struct device *dev;
 	struct drm_device *drm_dev;
 	bool is_enabled;
+
+	struct vop_win *afbdc_win;
 
 	struct completion dsp_hold_completion;
 
@@ -204,6 +209,11 @@ static inline uint32_t vop_get_intr_type(struct vop *vop,
 	return ret;
 }
 
+static int vop_win_id(struct vop *vop, struct vop_win *win)
+{
+	return (win - vop->win) / sizeof(*win);
+}
+
 static inline void vop_cfg_done(struct vop *vop)
 {
 	VOP_CTRL_SET(vop, cfg_done, 1);
@@ -219,6 +229,26 @@ static bool has_rb_swapped(uint32_t format)
 		return true;
 	default:
 		return false;
+	}
+}
+
+static int vop_convert_afbdc_format(uint32_t format)
+{
+	switch (format) {
+	case DRM_FORMAT_XRGB8888:
+	case DRM_FORMAT_ARGB8888:
+	case DRM_FORMAT_XBGR8888:
+	case DRM_FORMAT_ABGR8888:
+		return AFBDC_FMT_U8U8U8U8;
+	case DRM_FORMAT_RGB888:
+	case DRM_FORMAT_BGR888:
+		return AFBDC_FMT_U8U8U8;
+	case DRM_FORMAT_RGB565:
+	case DRM_FORMAT_BGR565:
+		return AFBDC_FMT_RGB565;
+	default:
+		DRM_ERROR("unsupported afbdc format[%08x]\n", format);
+		return -EINVAL;
 	}
 }
 
@@ -591,6 +621,9 @@ static void vop_crtc_disable(struct drm_crtc *crtc)
 		spin_unlock(&vop->reg_lock);
 	}
 
+	if (vop->data->afbdc)
+		VOP_AFBDC_SET(vop, enable, 0);
+
 	vop_cfg_done(vop);
 
 	drm_crtc_vblank_off(crtc);
@@ -686,6 +719,26 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 	if (is_yuv_support(fb->pixel_format) && ((state->src.x1 >> 16) % 2))
 		return -EINVAL;
 
+	if (fb->modifier[0] == DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC) {
+		struct vop *vop = to_vop(crtc);
+
+		if (!vop->data->afbdc) {
+			DRM_ERROR("vop does not support AFBDC\n");
+			return -EINVAL;
+		}
+
+		ret = vop_convert_afbdc_format(fb->pixel_format);
+		if (ret < 0)
+			return ret;
+
+		if (state->src.x1 || state->src.y1) {
+			DRM_ERROR("afbdc does not support offset display\n");
+			DRM_ERROR("xpos=%d, ypos=%d, offset=%d\n",
+				  state->src.x1, state->src.y1, fb->offsets[0]);
+			return -EINVAL;
+		}
+	}
+
 	return 0;
 }
 
@@ -700,6 +753,9 @@ static void vop_plane_atomic_disable(struct drm_plane *plane,
 		return;
 
 	spin_lock(&vop->reg_lock);
+
+	if (vop->afbdc_win == vop_win)
+		vop->afbdc_win = NULL;
 
 	VOP_WIN_SET(vop, win, enable, 0);
 
@@ -737,6 +793,9 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	if (WARN_ON(!vop->is_enabled))
 		return;
 
+	if (vop->afbdc_win == vop_win)
+		vop->afbdc_win = NULL;
+
 	if (!state->visible) {
 		vop_plane_atomic_disable(plane, old_state);
 		return;
@@ -763,6 +822,18 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	format = vop_convert_format(fb->pixel_format);
 
 	spin_lock(&vop->reg_lock);
+
+	if (fb->modifier[0] == DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC) {
+		int afbdc_format = vop_convert_afbdc_format(fb->pixel_format);
+
+		VOP_AFBDC_SET(vop, format, afbdc_format | 1 << 4);
+		VOP_AFBDC_SET(vop, hreg_block_split, 0);
+		VOP_AFBDC_SET(vop, win_sel, vop_win_id(vop, vop_win));
+		VOP_AFBDC_SET(vop, hdr_ptr, dma_addr);
+		VOP_AFBDC_SET(vop, pic_size, act_info);
+
+		vop->afbdc_win = vop_win;
+	}
 
 	VOP_WIN_SET(vop, win, format, format);
 	VOP_WIN_SET(vop, win, yrgb_vir, fb->pitches[0] >> 2);
@@ -1162,6 +1233,7 @@ static void vop_crtc_atomic_flush(struct drm_crtc *crtc,
 
 	spin_lock(&vop->reg_lock);
 
+	VOP_AFBDC_SET(vop, enable, vop->afbdc_win != NULL);
 	vop_cfg_done(vop);
 
 	spin_unlock(&vop->reg_lock);

@@ -28,38 +28,6 @@
 
 #include <soc/rockchip/rockchip_sip.h>
 
-struct dram_timing {
-	unsigned int ddr3_speed_bin;
-	unsigned int pd_idle;
-	unsigned int sr_idle;
-	unsigned int sr_mc_gate_idle;
-	unsigned int srpd_lite_idle;
-	unsigned int standby_idle;
-	unsigned int auto_pd_dis_freq;
-	unsigned int dram_dll_dis_freq;
-	unsigned int phy_dll_dis_freq;
-	unsigned int ddr3_odt_dis_freq;
-	unsigned int ddr3_drv;
-	unsigned int ddr3_odt;
-	unsigned int phy_ddr3_ca_drv;
-	unsigned int phy_ddr3_dq_drv;
-	unsigned int phy_ddr3_odt;
-	unsigned int lpddr3_odt_dis_freq;
-	unsigned int lpddr3_drv;
-	unsigned int lpddr3_odt;
-	unsigned int phy_lpddr3_ca_drv;
-	unsigned int phy_lpddr3_dq_drv;
-	unsigned int phy_lpddr3_odt;
-	unsigned int lpddr4_odt_dis_freq;
-	unsigned int lpddr4_drv;
-	unsigned int lpddr4_dq_odt;
-	unsigned int lpddr4_ca_odt;
-	unsigned int phy_lpddr4_ca_drv;
-	unsigned int phy_lpddr4_ck_cs_drv;
-	unsigned int phy_lpddr4_dq_drv;
-	unsigned int phy_lpddr4_odt;
-};
-
 struct rk3399_dmcfreq {
 	struct device *dev;
 	struct devfreq *devfreq;
@@ -67,7 +35,19 @@ struct rk3399_dmcfreq {
 	struct clk *dmc_clk;
 	struct devfreq_event_dev *edev;
 	struct mutex lock;
-	struct dram_timing timing;
+	unsigned int pd_idle;
+	unsigned int sr_idle;
+	unsigned int sr_mc_gate_idle;
+	unsigned int srpd_lite_idle;
+	unsigned int standby_idle;
+	unsigned int pd_idle_dis_freq;
+	unsigned int sr_idle_dis_freq;
+	unsigned int sr_mc_gate_idle_dis_freq;
+	unsigned int srpd_lite_idle_dis_freq;
+	unsigned int standby_idle_dis_freq;
+	unsigned int odt_dis_freq;
+	unsigned int odt_pd_arg0;
+	unsigned int odt_pd_arg1;
 
 	/*
 	 * DDR Converser of Frequency (DCF) is used to implement DDR frequency
@@ -87,10 +67,11 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 				 u32 flags)
 {
 	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(dev);
-	struct dev_pm_opp *opp;
 	unsigned long old_clk_rate = dmcfreq->rate;
 	unsigned long target_volt, target_rate;
-	int err;
+	struct arm_smccc_res res;
+	struct dev_pm_opp *opp;
+	int dram_flag, err, odt_pd_arg0, odt_pd_arg1;
 
 	rcu_read_lock();
 	opp = devfreq_recommended_opp(dev, freq, flags);
@@ -111,6 +92,39 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 		return 0;
 
 	mutex_lock(&dmcfreq->lock);
+
+	dram_flag = 0;
+	if (target_rate >= dmcfreq->odt_dis_freq)
+		dram_flag = 1;
+
+	odt_pd_arg0 = dmcfreq->odt_pd_arg0;
+	odt_pd_arg1 = dmcfreq->odt_pd_arg1;
+
+	/*
+	 * odt_pd_arg0:
+	 * bit0-7: sr_idle value
+	 * bit8-15: sr_mc_gate_idle
+	 * bit16-31: standby_idle
+	 */
+	if (target_rate >= dmcfreq->sr_idle_dis_freq)
+		odt_pd_arg0 = odt_pd_arg0 & 0xffffff00;
+	if (target_rate >= dmcfreq->sr_mc_gate_idle_dis_freq)
+		odt_pd_arg0 = odt_pd_arg0 & 0xffff00ff;
+	if (target_rate >= dmcfreq->standby_idle_dis_freq)
+		odt_pd_arg0 = odt_pd_arg0 & 0x0000ffff;
+
+	/* odt_pd_arg1:
+	 * bit0-11: pd_idle
+	 * bit16-27: srpd_lite_idle
+	 */
+	if (target_rate >= dmcfreq->pd_idle_dis_freq)
+		odt_pd_arg1 = odt_pd_arg1 & 0xfffff000;
+	if (target_rate >= dmcfreq->srpd_lite_idle_dis_freq)
+		odt_pd_arg1 = odt_pd_arg1 & 0xf000ffff;
+
+	arm_smccc_smc(ROCKCHIP_SIP_DRAM_FREQ, odt_pd_arg0, odt_pd_arg1,
+		      ROCKCHIP_SIP_CONFIG_DRAM_SET_ODT_PD,
+		      dram_flag, 0, 0, 0, &res);
 
 	/*
 	 * If frequency scaling from low to high, adjust voltage first.
@@ -263,81 +277,12 @@ static irqreturn_t rk3399_dmc_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static int of_get_ddr_timings(struct dram_timing *timing,
-			      struct device_node *np)
-{
-	int ret = 0;
-
-	ret = of_property_read_u32(np, "rockchip,ddr3_speed_bin",
-				   &timing->ddr3_speed_bin);
-	ret |= of_property_read_u32(np, "rockchip,pd_idle",
-				    &timing->pd_idle);
-	ret |= of_property_read_u32(np, "rockchip,sr_idle",
-				    &timing->sr_idle);
-	ret |= of_property_read_u32(np, "rockchip,sr_mc_gate_idle",
-				    &timing->sr_mc_gate_idle);
-	ret |= of_property_read_u32(np, "rockchip,srpd_lite_idle",
-				    &timing->srpd_lite_idle);
-	ret |= of_property_read_u32(np, "rockchip,standby_idle",
-				    &timing->standby_idle);
-	ret |= of_property_read_u32(np, "rockchip,auto_pd_dis_freq",
-				    &timing->auto_pd_dis_freq);
-	ret |= of_property_read_u32(np, "rockchip,dram_dll_dis_freq",
-				    &timing->dram_dll_dis_freq);
-	ret |= of_property_read_u32(np, "rockchip,phy_dll_dis_freq",
-				    &timing->phy_dll_dis_freq);
-	ret |= of_property_read_u32(np, "rockchip,ddr3_odt_dis_freq",
-				    &timing->ddr3_odt_dis_freq);
-	ret |= of_property_read_u32(np, "rockchip,ddr3_drv",
-				    &timing->ddr3_drv);
-	ret |= of_property_read_u32(np, "rockchip,ddr3_odt",
-				    &timing->ddr3_odt);
-	ret |= of_property_read_u32(np, "rockchip,phy_ddr3_ca_drv",
-				    &timing->phy_ddr3_ca_drv);
-	ret |= of_property_read_u32(np, "rockchip,phy_ddr3_dq_drv",
-				    &timing->phy_ddr3_dq_drv);
-	ret |= of_property_read_u32(np, "rockchip,phy_ddr3_odt",
-				    &timing->phy_ddr3_odt);
-	ret |= of_property_read_u32(np, "rockchip,lpddr3_odt_dis_freq",
-				    &timing->lpddr3_odt_dis_freq);
-	ret |= of_property_read_u32(np, "rockchip,lpddr3_drv",
-				    &timing->lpddr3_drv);
-	ret |= of_property_read_u32(np, "rockchip,lpddr3_odt",
-				    &timing->lpddr3_odt);
-	ret |= of_property_read_u32(np, "rockchip,phy_lpddr3_ca_drv",
-				    &timing->phy_lpddr3_ca_drv);
-	ret |= of_property_read_u32(np, "rockchip,phy_lpddr3_dq_drv",
-				    &timing->phy_lpddr3_dq_drv);
-	ret |= of_property_read_u32(np, "rockchip,phy_lpddr3_odt",
-				    &timing->phy_lpddr3_odt);
-	ret |= of_property_read_u32(np, "rockchip,lpddr4_odt_dis_freq",
-				    &timing->lpddr4_odt_dis_freq);
-	ret |= of_property_read_u32(np, "rockchip,lpddr4_drv",
-				    &timing->lpddr4_drv);
-	ret |= of_property_read_u32(np, "rockchip,lpddr4_dq_odt",
-				    &timing->lpddr4_dq_odt);
-	ret |= of_property_read_u32(np, "rockchip,lpddr4_ca_odt",
-				    &timing->lpddr4_ca_odt);
-	ret |= of_property_read_u32(np, "rockchip,phy_lpddr4_ca_drv",
-				    &timing->phy_lpddr4_ca_drv);
-	ret |= of_property_read_u32(np, "rockchip,phy_lpddr4_ck_cs_drv",
-				    &timing->phy_lpddr4_ck_cs_drv);
-	ret |= of_property_read_u32(np, "rockchip,phy_lpddr4_dq_drv",
-				    &timing->phy_lpddr4_dq_drv);
-	ret |= of_property_read_u32(np, "rockchip,phy_lpddr4_odt",
-				    &timing->phy_lpddr4_odt);
-
-	return ret;
-}
-
 static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 {
-	struct arm_smccc_res res;
 	struct device *dev = &pdev->dev;
 	struct device_node *np = pdev->dev.of_node;
 	struct rk3399_dmcfreq *data;
-	int ret, irq, index, size;
-	uint32_t *timing;
+	int ret, irq;
 	struct dev_pm_opp *opp;
 
 	irq = platform_get_irq(pdev, 0);
@@ -384,29 +329,40 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	/*
-	 * Get dram timing and pass it to arm trust firmware,
-	 * the dram drvier in arm trust firmware will get these
-	 * timing and to do dram initial.
-	 */
-	if (!of_get_ddr_timings(&data->timing, np)) {
-		timing = &data->timing.ddr3_speed_bin;
-		size = sizeof(struct dram_timing) / 4;
-		for (index = 0; index < size; index++) {
-			arm_smccc_smc(ROCKCHIP_SIP_DRAM_FREQ, *timing++, index,
-				      ROCKCHIP_SIP_CONFIG_DRAM_SET_PARAM,
-				      0, 0, 0, 0, &res);
-			if (res.a0) {
-				dev_err(dev, "Failed to set dram param: %ld\n",
-					res.a0);
-				return -EINVAL;
-			}
-		}
-	}
+	of_property_read_u32(np, "rockchip,pd_idle", &data->pd_idle);
+	of_property_read_u32(np, "rockchip,sr_idle", &data->sr_idle);
+	of_property_read_u32(np, "rockchip,sr_mc_gate_idle",
+			     &data->sr_mc_gate_idle);
+	of_property_read_u32(np, "rockchip,srpd_lite_idle",
+			     &data->srpd_lite_idle);
+	of_property_read_u32(np, "rockchip,standby_idle", &data->standby_idle);
+	of_property_read_u32(np, "rockchip,pd_idle_dis_freq",
+			     &data->pd_idle_dis_freq);
+	of_property_read_u32(np, "rockchip,sr_idle_dis_freq",
+			     &data->sr_idle_dis_freq);
+	of_property_read_u32(np, "rockchip,sr_mc_gate_idle_dis_freq",
+			     &data->sr_mc_gate_idle_dis_freq);
+	of_property_read_u32(np, "rockchip,srpd_lite_idle_dis_freq",
+			     &data->srpd_lite_idle_dis_freq);
+	of_property_read_u32(np, "rockchip,standby_idle_dis_freq",
+			     &data->standby_idle_dis_freq);
+	of_property_read_u32(np, "rockchip,odt_dis_freq", &data->odt_dis_freq);
 
-	arm_smccc_smc(ROCKCHIP_SIP_DRAM_FREQ, 0, 0,
-		      ROCKCHIP_SIP_CONFIG_DRAM_INIT,
-		      0, 0, 0, 0, &res);
+	/*
+	 * odt_pd_arg0:
+	 * bit0-7: sr_idle value
+	 * bit8-15: sr_mc_gate_idle
+	 * bit16-31: standby_idle
+	 */
+	data->odt_pd_arg0 = (data->sr_idle & 0xff) |
+			    ((data->sr_mc_gate_idle & 0xff) << 8) |
+			    ((data->standby_idle & 0xffff) << 16);
+	/* odt_pd_arg1:
+	 * bit0-11: pd_idle
+	 * bit16-27: srpd_lite_idle
+	 */
+	data->odt_pd_arg1 = (data->pd_idle & 0xfff) |
+			   ((data->srpd_lite_idle & 0xfff) << 16);
 
 	/*
 	 * We add a devfreq driver to our parent since it has a device tree node

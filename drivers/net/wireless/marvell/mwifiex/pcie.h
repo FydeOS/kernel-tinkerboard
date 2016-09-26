@@ -347,6 +347,7 @@ struct pcie_service_card {
 	struct mwifiex_adapter *adapter;
 	struct mwifiex_pcie_device pcie;
 	struct completion fw_done;
+	struct mwifiex_plt_wake_cfg *plt_wake_cfg;
 
 	u8 txbd_flush;
 	u32 txbd_wrptr;

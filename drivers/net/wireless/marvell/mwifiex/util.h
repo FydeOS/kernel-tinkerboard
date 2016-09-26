@@ -35,6 +35,12 @@ struct mwifiex_cb {
 	};
 };
 
+struct mwifiex_plt_wake_cfg {
+	struct device *dev;
+	int irq_wifi;
+	bool wake_by_wifi;
+};
+
 /* size/addr for mwifiex_debug_info */
 #define item_size(n)		(FIELD_SIZEOF(struct mwifiex_debug_info, n))
 #define item_addr(n)		(offsetof(struct mwifiex_debug_info, n))
@@ -92,5 +98,10 @@ static inline dma_addr_t MWIFIEX_SKB_DMA_ADDR(struct sk_buff *skb)
 
 int mwifiex_debug_info_to_buffer(struct mwifiex_private *priv, char *buf,
 				 struct mwifiex_debug_info *info);
+
+int mwifiex_probe_of(struct device *dev, const struct of_device_id *matches,
+		     struct mwifiex_plt_wake_cfg **wake_cfg);
+void mwifiex_disable_wake(struct mwifiex_plt_wake_cfg *wake_cfg);
+void mwifiex_enable_wake(struct mwifiex_plt_wake_cfg *wake_cfg);
 
 #endif /* !_MWIFIEX_UTIL_H_ */

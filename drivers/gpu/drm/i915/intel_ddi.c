@@ -431,15 +431,6 @@ void intel_prepare_ddi_buffer(struct intel_encoder *encoder)
 		ddi_translations_hdmi =
 				skl_get_buf_trans_hdmi(dev_priv, &n_hdmi_entries);
 		hdmi_default_entry = 8;
-		/* If we're boosting the current, set bit 31 of trans1 */
-		if (dev_priv->vbt.ddi_port_info[port].hdmi_boost_level ||
-		    dev_priv->vbt.ddi_port_info[port].dp_boost_level)
-			iboost_bit = DDI_BUF_BALANCE_LEG_ENABLE;
-
-		if (WARN_ON(encoder->type == INTEL_OUTPUT_EDP &&
-			    port != PORT_A && port != PORT_E &&
-			    n_edp_entries > 9))
-			n_edp_entries = 9;
 	} else if (IS_BROADWELL(dev_priv)) {
 		ddi_translations_fdi = bdw_ddi_translations_fdi;
 		ddi_translations_dp = bdw_ddi_translations_dp;
@@ -475,6 +466,17 @@ void intel_prepare_ddi_buffer(struct intel_encoder *encoder)
 		n_dp_entries = ARRAY_SIZE(bdw_ddi_translations_dp);
 		n_hdmi_entries = ARRAY_SIZE(bdw_ddi_translations_hdmi);
 		hdmi_default_entry = 7;
+	}
+
+	if (IS_SKYLAKE(dev_priv) || IS_KABYLAKE(dev_priv)) {
+		/* If we're boosting the current, set bit 31 of trans1 */
+		if (dev_priv->vbt.ddi_port_info[port].dp_boost_level)
+			iboost_bit = DDI_BUF_BALANCE_LEG_ENABLE;
+
+		if (WARN_ON(encoder->type == INTEL_OUTPUT_EDP &&
+			    port != PORT_A && port != PORT_E &&
+			    n_edp_entries > 9))
+			n_edp_entries = 9;
 	}
 
 	switch (encoder->type) {

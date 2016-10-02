@@ -10,17 +10,18 @@
 * option) any later version.
 */
 
-#include <linux/module.h>
-#include <linux/platform_device.h>
-#include <linux/err.h>
 #include <linux/clk.h>
-#include <linux/io.h>
+#include <linux/component.h>
+#include <linux/err.h>
+#include <linux/gpio.h>
 #include <linux/interrupt.h>
+#include <linux/io.h>
+#include <linux/iopoll.h>
+#include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
-#include <linux/gpio.h>
-#include <linux/component.h>
 #include <linux/phy/phy.h>
+#include <linux/platform_device.h>
 
 #include <drm/drmP.h>
 #include <drm/drm_atomic_helper.h>
@@ -34,6 +35,8 @@
 #include "analogix_dp_reg.h"
 
 #define to_dp(nm)	container_of(nm, struct analogix_dp_device, nm)
+
+static const bool verify_fast_training;
 
 struct bridge_init {
 	struct i2c_client *client;
@@ -518,7 +521,7 @@ static int analogix_dp_process_equalizer_training(struct analogix_dp_device *dp)
 {
 	int lane, lane_count, retval;
 	u32 reg;
-	u8 link_align, link_status[2], adjust_request[2];
+	u8 link_align, link_status[2], adjust_request[2], spread;
 
 	usleep_range(400, 401);
 
@@ -560,6 +563,20 @@ static int analogix_dp_process_equalizer_training(struct analogix_dp_device *dp)
 		dp->link_train.lane_count = reg;
 		dev_dbg(dp->dev, "final lane count = %.2x\n",
 			dp->link_train.lane_count);
+
+		retval = drm_dp_dpcd_readb(&dp->aux, DP_MAX_DOWNSPREAD,
+					   &spread);
+		if (retval != 1) {
+			dev_err(dp->dev, "failed to read downspread %d\n",
+				retval);
+			dp->fast_train_support = false;
+		} else {
+			dp->fast_train_support =
+				(spread & DP_NO_AUX_HANDSHAKE_LINK_TRAINING) ?
+					true : false;
+		}
+		dev_dbg(dp->dev, "fast link training %s\n",
+			dp->fast_train_support ? "supported" : "unsupported");
 
 		/* set enhanced mode if available */
 		analogix_dp_set_enhanced_mode(dp);
@@ -627,8 +644,8 @@ static int analogix_dp_get_max_rx_lane_count(struct analogix_dp_device *dp,
 	return ret;
 }
 
-static int analogix_dp_sw_link_training(struct analogix_dp_device *dp,
-					u32 max_lanes, u32 max_rate)
+static int analogix_dp_full_link_train(struct analogix_dp_device *dp,
+				       u32 max_lanes, u32 max_rate)
 {
 	int ret = 0;
 	bool training_finished = false;
@@ -707,21 +724,88 @@ static int analogix_dp_sw_link_training(struct analogix_dp_device *dp,
 	return ret;
 }
 
-static int analogix_dp_set_link_train(struct analogix_dp_device *dp,
-				      u32 count, u32 bwtype)
+static int analogix_dp_fast_link_train(struct analogix_dp_device *dp)
 {
-	int i;
-	int retval;
+	int i, ret;
+	u8 link_align, link_status[2];
+	enum pll_status status;
 
-	for (i = 0; i < DP_TIMEOUT_LOOP_COUNT; i++) {
-		retval = analogix_dp_sw_link_training(dp, count, bwtype);
-		if (retval == 0)
-			break;
+	analogix_dp_reset_macro(dp);
 
-		usleep_range(100, 110);
+	analogix_dp_set_link_bandwidth(dp, dp->link_train.link_rate);
+	analogix_dp_set_lane_count(dp, dp->link_train.lane_count);
+
+	for (i = 0; i < dp->link_train.lane_count; i++) {
+		analogix_dp_set_lane_link_training(dp,
+			dp->link_train.training_lane[i], i);
 	}
 
-	return retval;
+	ret = readx_poll_timeout(analogix_dp_get_pll_lock_status, dp, status,
+				 status != PLL_UNLOCKED, 120,
+				 120 * DP_TIMEOUT_LOOP_COUNT);
+	if (ret) {
+		DRM_DEV_ERROR(dp->dev, "Wait for pll lock failed %d\n", ret);
+		return ret;
+	}
+
+	/* source Set training pattern 1 */
+	analogix_dp_set_training_pattern(dp, TRAINING_PTN1);
+	/* From DP spec, pattern must be on-screen for a minimum 500us */
+	usleep_range(500, 600);
+
+	analogix_dp_set_training_pattern(dp, TRAINING_PTN2);
+	/* From DP spec, pattern must be on-screen for a minimum 500us */
+	usleep_range(500, 600);
+
+	/* TODO: enhanced_mode?*/
+	analogix_dp_set_training_pattern(dp, DP_NONE);
+
+	/*
+	 * Useful for debugging issues with fast link training, disable for more
+	 * speed
+	 */
+	if (verify_fast_training) {
+		ret = drm_dp_dpcd_readb(&dp->aux, DP_LANE_ALIGN_STATUS_UPDATED,
+					&link_align);
+		if (ret < 0) {
+			DRM_DEV_ERROR(dp->dev, "Read align status failed %d\n",
+				      ret);
+			return ret;
+		}
+
+		ret = drm_dp_dpcd_read(&dp->aux, DP_LANE0_1_STATUS, link_status,
+				       2);
+		if (ret < 0) {
+			DRM_DEV_ERROR(dp->dev, "Read link status failed %d\n",
+				      ret);
+			return ret;
+		}
+
+		if (analogix_dp_clock_recovery_ok(link_status,
+						  dp->link_train.lane_count)) {
+			DRM_DEV_ERROR(dp->dev, "Clock recovery failed\n");
+			analogix_dp_reduce_link_rate(dp);
+			return -EIO;
+		}
+
+		if (analogix_dp_channel_eq_ok(link_status, link_align,
+					      dp->link_train.lane_count)) {
+			DRM_DEV_ERROR(dp->dev, "Channel EQ failed\n");
+			analogix_dp_reduce_link_rate(dp);
+			return -EIO;
+		}
+	}
+
+	return 0;
+}
+
+static int analogix_dp_train_link(struct analogix_dp_device *dp)
+{
+	if (dp->fast_train_support)
+		return analogix_dp_fast_link_train(dp);
+
+	return analogix_dp_full_link_train(dp, dp->video_info.max_lane_count,
+					   dp->video_info.max_link_rate);
 }
 
 static int analogix_dp_config_video(struct analogix_dp_device *dp)
@@ -854,10 +938,10 @@ static void analogix_dp_commit(struct analogix_dp_device *dp)
 			DRM_ERROR("failed to disable the panel\n");
 	}
 
-	ret = analogix_dp_set_link_train(dp, dp->video_info.max_lane_count,
-					 dp->video_info.max_link_rate);
+	ret = readx_poll_timeout(analogix_dp_train_link, dp, ret, !ret, 100,
+				 DP_TIMEOUT_TRAINING_US * 5);
 	if (ret) {
-		dev_err(dp->dev, "unable to do link train\n");
+		dev_err(dp->dev, "unable to do link train, ret=%d\n", ret);
 		return;
 	}
 

@@ -205,6 +205,9 @@ static int ddp_cmdq_cb(void *data)
 	struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
 
 	if (mtk_crtc->cmdq_needs_event) {
+		/* cmdq_vblank_event must be read after cmdq_needs_event */
+		smp_rmb();
+
 		mtk_drm_crtc_finish_page_flip(mtk_crtc);
 		mtk_crtc->cmdq_needs_event = false;
 	}
@@ -463,6 +466,8 @@ static void mtk_drm_crtc_atomic_begin(struct drm_crtc *crtc,
 		WARN_ON(drm_crtc_vblank_get(crtc) != 0);
 
 		mtk_crtc->cmdq_vblank_event = state->base.event;
+		/* cmdq_vblank_event must be written before cmdq_needs_event */
+		smp_wmb();
 		mtk_crtc->cmdq_needs_event = true;
 	}
 

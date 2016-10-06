@@ -179,9 +179,7 @@ ap_i2c_nfc: &i2c7 {
 	status = "okay";
 
 	fingerprint@0 {
-		// TODO: determine a proper description; kernel complains
-		// loudly about 'spidev' in DTS
-		//compatible = "spidev";
+		compatible = "fpc,fpc1020";
 		reg = <0>;
 		spi-max-frequency = <5000000>;
 

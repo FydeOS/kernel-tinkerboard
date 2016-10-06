@@ -576,8 +576,6 @@ static void vop_crtc_disable(struct drm_crtc *crtc)
 	if (!vop->is_enabled)
 		return;
 
-	rockchip_drm_psr_deactivate(&vop->crtc);
-
 	/*
 	 * We need to make sure that all windows are disabled before we
 	 * disable that crtc. Otherwise we might try to scan from a destroyed
@@ -1137,8 +1135,6 @@ static void vop_crtc_enable(struct drm_crtc *crtc)
 	clk_set_rate(vop->dclk, adjusted_mode->clock * 1000);
 
 	VOP_CTRL_SET(vop, standby, 0);
-
-	rockchip_drm_psr_activate(&vop->crtc);
 }
 
 static void vop_crtc_atomic_flush(struct drm_crtc *crtc,

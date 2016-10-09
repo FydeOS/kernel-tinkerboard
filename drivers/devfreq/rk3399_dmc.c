@@ -27,32 +27,7 @@
 #include <linux/suspend.h>
 
 #include <soc/rockchip/rockchip_sip.h>
-
-struct rk3399_dmcfreq {
-	struct device *dev;
-	struct devfreq *devfreq;
-	struct devfreq_simple_ondemand_data ondemand_data;
-	struct clk *dmc_clk;
-	struct devfreq_event_dev *edev;
-	struct mutex lock;
-	unsigned int pd_idle;
-	unsigned int sr_idle;
-	unsigned int sr_mc_gate_idle;
-	unsigned int srpd_lite_idle;
-	unsigned int standby_idle;
-	unsigned int pd_idle_dis_freq;
-	unsigned int sr_idle_dis_freq;
-	unsigned int sr_mc_gate_idle_dis_freq;
-	unsigned int srpd_lite_idle_dis_freq;
-	unsigned int standby_idle_dis_freq;
-	unsigned int odt_dis_freq;
-	unsigned int odt_pd_arg0;
-	unsigned int odt_pd_arg1;
-	struct regulator *vdd_center;
-	unsigned long rate, target_rate;
-	unsigned long volt, target_volt;
-	struct dev_pm_opp *curr_opp;
-};
+#include <soc/rockchip/rk3399_dmc.h>
 
 static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 				 u32 flags)
@@ -352,6 +327,7 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 
 	data->dev = dev;
 	platform_set_drvdata(pdev, data);
+	pd_register_notify_to_dmc(data->devfreq);
 
 	return 0;
 }

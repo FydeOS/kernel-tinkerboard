@@ -237,6 +237,8 @@ static void ps8640_pre_enable(struct drm_bridge *bridge)
 		goto err_panel_unprepare;
 	}
 
+	usleep_range(5000, 5500);
+
 	err = regulator_enable(ps_bridge->v33);
 	if (err) {
 		DRM_ERROR("failed to enable power 3.3v %d", err);

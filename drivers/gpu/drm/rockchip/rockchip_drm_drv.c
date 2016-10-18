@@ -191,7 +191,7 @@ static int rockchip_drm_load(struct drm_device *drm_dev, unsigned long flags)
 	drm_dev->dev_private = private;
 
 	INIT_LIST_HEAD(&private->psr_list);
-	spin_lock_init(&private->psr_list_lock);
+	mutex_init(&private->psr_list_lock);
 
 	drm_mode_config_init(drm_dev);
 

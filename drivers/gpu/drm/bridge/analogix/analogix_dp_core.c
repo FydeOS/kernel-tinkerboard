@@ -589,9 +589,10 @@ static int analogix_dp_process_equalizer_training(struct analogix_dp_device *dp)
 	return 0;
 }
 
-static void analogix_dp_get_max_rx_bandwidth(struct analogix_dp_device *dp,
-					     u8 *bandwidth)
+static int analogix_dp_get_max_rx_bandwidth(struct analogix_dp_device *dp,
+					    u8 *bandwidth)
 {
+	ssize_t ret;
 	u8 data;
 
 	/*
@@ -600,27 +601,38 @@ static void analogix_dp_get_max_rx_bandwidth(struct analogix_dp_device *dp,
 	 * For DP rev.1.2, Maximum link rate of Main Link lanes
 	 * 0x06 = 1.62 Gbps, 0x0a = 2.7 Gbps, 0x14 = 5.4Gbps
 	 */
-	drm_dp_dpcd_readb(&dp->aux, DP_MAX_LINK_RATE, &data);
-	*bandwidth = data;
+	ret = drm_dp_dpcd_readb(&dp->aux, DP_MAX_LINK_RATE, &data);
+	if (ret == 1) {
+		*bandwidth = data;
+		return 0;
+	}
+	return ret;
 }
 
-static void analogix_dp_get_max_rx_lane_count(struct analogix_dp_device *dp,
-					      u8 *lane_count)
+static int analogix_dp_get_max_rx_lane_count(struct analogix_dp_device *dp,
+					     u8 *lane_count)
 {
+	ssize_t ret;
 	u8 data;
 
 	/*
 	 * For DP rev.1.1, Maximum number of Main Link lanes
 	 * 0x01 = 1 lane, 0x02 = 2 lanes, 0x04 = 4 lanes
 	 */
-	drm_dp_dpcd_readb(&dp->aux, DP_MAX_LANE_COUNT, &data);
-	*lane_count = DPCD_MAX_LANE_COUNT(data);
+	ret = drm_dp_dpcd_readb(&dp->aux, DP_MAX_LANE_COUNT, &data);
+	if (ret == 1) {
+		*lane_count = DPCD_MAX_LANE_COUNT(data);
+		return 0;
+	}
+	return ret;
 }
 
-static void analogix_dp_init_training(struct analogix_dp_device *dp,
-				      enum link_lane_count_type max_lane,
-				      int max_rate)
+static int analogix_dp_sw_link_training(struct analogix_dp_device *dp,
+					u32 max_lanes, u32 max_rate)
 {
+	int ret = 0;
+	bool training_finished = false;
+
 	/*
 	 * MACRO_RST must be applied after the PLL_LOCK to avoid
 	 * the DP inter pair skew issue for at least 10 us
@@ -628,8 +640,16 @@ static void analogix_dp_init_training(struct analogix_dp_device *dp,
 	analogix_dp_reset_macro(dp);
 
 	/* Initialize by reading RX's DPCD */
-	analogix_dp_get_max_rx_bandwidth(dp, &dp->link_train.link_rate);
-	analogix_dp_get_max_rx_lane_count(dp, &dp->link_train.lane_count);
+	ret = analogix_dp_get_max_rx_bandwidth(dp, &dp->link_train.link_rate);
+	if (ret) {
+		dev_err(dp->dev, "Failed to get max bandwidth %d\n", ret);
+		return ret;
+	}
+	ret = analogix_dp_get_max_rx_lane_count(dp, &dp->link_train.lane_count);
+	if (ret) {
+		dev_err(dp->dev, "Failed to get max lane count %d\n", ret);
+		return ret;
+	}
 
 	if ((dp->link_train.link_rate != DP_LINK_BW_1_62) &&
 	    (dp->link_train.link_rate != DP_LINK_BW_2_7) &&
@@ -646,50 +666,45 @@ static void analogix_dp_init_training(struct analogix_dp_device *dp,
 	}
 
 	/* Setup TX lane count & rate */
-	if (dp->link_train.lane_count > max_lane)
-		dp->link_train.lane_count = max_lane;
+	if (dp->link_train.lane_count > max_lanes)
+		dp->link_train.lane_count = max_lanes;
 	if (dp->link_train.link_rate > max_rate)
 		dp->link_train.link_rate = max_rate;
 
 	/* All DP analog module power up */
 	analogix_dp_set_analog_power_down(dp, POWER_ALL, 0);
-}
-
-static int analogix_dp_sw_link_training(struct analogix_dp_device *dp)
-{
-	int retval = 0, training_finished = 0;
 
 	dp->link_train.lt_state = START;
 
 	/* Process here */
-	while (!retval && !training_finished) {
+	while (!ret && !training_finished) {
 		switch (dp->link_train.lt_state) {
 		case START:
-			retval = analogix_dp_link_start(dp);
-			if (retval)
+			ret = analogix_dp_link_start(dp);
+			if (ret)
 				dev_err(dp->dev, "LT link start failed!\n");
 			break;
 		case CLOCK_RECOVERY:
-			retval = analogix_dp_process_clock_recovery(dp);
-			if (retval)
+			ret = analogix_dp_process_clock_recovery(dp);
+			if (ret)
 				dev_err(dp->dev, "LT CR failed!\n");
 			break;
 		case EQUALIZER_TRAINING:
-			retval = analogix_dp_process_equalizer_training(dp);
-			if (retval)
+			ret = analogix_dp_process_equalizer_training(dp);
+			if (ret)
 				dev_err(dp->dev, "LT EQ failed!\n");
 			break;
 		case FINISHED:
-			training_finished = 1;
+			training_finished = true;
 			break;
 		case FAILED:
 			return -EREMOTEIO;
 		}
 	}
-	if (retval)
-		dev_err(dp->dev, "eDP link training failed (%d)\n", retval);
+	if (ret)
+		dev_err(dp->dev, "eDP link training failed (%d)\n", ret);
 
-	return retval;
+	return ret;
 }
 
 static int analogix_dp_set_link_train(struct analogix_dp_device *dp,
@@ -699,8 +714,7 @@ static int analogix_dp_set_link_train(struct analogix_dp_device *dp,
 	int retval;
 
 	for (i = 0; i < DP_TIMEOUT_LOOP_COUNT; i++) {
-		analogix_dp_init_training(dp, count, bwtype);
-		retval = analogix_dp_sw_link_training(dp);
+		retval = analogix_dp_sw_link_training(dp, count, bwtype);
 		if (retval == 0)
 			break;
 

@@ -305,9 +305,8 @@ enum {
 	DAILINK_DA7219,
 	DAILINK_CDNDP,
 	DAILINK_RT5514_DSP,
+	DAILINK_SIZE,
 };
-
-#define DAILINK_ENTITIES	(DAILINK_DA7219 + 1)
 
 static struct snd_soc_dai_link rockchip_dailinks[] = {
 	[DAILINK_MAX98357A] = {
@@ -351,8 +350,9 @@ static struct snd_soc_dai_link rockchip_dailinks[] = {
 	[DAILINK_RT5514_DSP] = {
 		.name = "RT5514 DSP",
 		.stream_name = "Wake on Voice",
-		.codec_name = "snd-soc-dummy",
-		.codec_dai_name = "snd-soc-dummy-dai",
+		/* cpu_dai_name is not set since rt5514-spi has only one DAI */
+		.codec_dai_name = "rt5514-dspbuffer",
+		.ignore_suspend = 1,
 	},
 };
 
@@ -369,76 +369,39 @@ static struct snd_soc_card rockchip_sound_card = {
 	.num_controls = ARRAY_SIZE(rockchip_controls),
 };
 
-static int rockchip_sound_match_stub(struct device *dev, void *data)
+static int rockchip_sound_dailink_init(struct platform_device *pdev, int index)
 {
-	return 1;
+	struct device_node *cpu, *codec;
+
+	cpu = of_parse_phandle(pdev->dev.of_node, "rockchip,cpu", index);
+	if (!cpu) {
+		dev_err(&pdev->dev, "'rockchip,cpu'[%d] invalid\n", index);
+		return -EINVAL;
+	}
+
+	codec = of_parse_phandle(pdev->dev.of_node, "rockchip,codec", index);
+	if (!codec) {
+		dev_err(&pdev->dev, "'rockchip,codec'[%d] invalid\n", index);
+		return -EINVAL;
+	}
+
+	rockchip_dailinks[index].platform_of_node = cpu;
+	rockchip_dailinks[index].cpu_of_node = cpu;
+	rockchip_dailinks[index].codec_of_node = codec;
+
+	return 0;
 }
 
 static int rockchip_sound_probe(struct platform_device *pdev)
 {
 	struct snd_soc_card *card = &rockchip_sound_card;
-	struct device_node *cpu_node;
-	struct device *dev;
-	struct device_driver *drv;
 	int i, ret;
 
-	cpu_node = of_parse_phandle(pdev->dev.of_node, "rockchip,cpu", 0);
-	if (!cpu_node) {
-		dev_err(&pdev->dev, "Property 'rockchip,cpu' missing or invalid\n");
-		return -EINVAL;
+	for (i = 0; i < DAILINK_SIZE; i++) {
+		ret = rockchip_sound_dailink_init(pdev, i);
+		if (ret)
+			return ret;
 	}
-
-	for (i = 0; i < DAILINK_ENTITIES; i++) {
-		rockchip_dailinks[i].platform_of_node = cpu_node;
-		rockchip_dailinks[i].cpu_of_node = cpu_node;
-
-		rockchip_dailinks[i].codec_of_node =
-			of_parse_phandle(pdev->dev.of_node, "rockchip,codec", i);
-		if (!rockchip_dailinks[i].codec_of_node) {
-			dev_err(&pdev->dev,
-				"Property[%d] 'rockchip,codec' missing or invalid\n", i);
-			return -EINVAL;
-		}
-	}
-
-	/**
-	 * To acquire the spi driver of the rt5514 and set the dai-links names
-	 * for soc_bind_dai_link
-	 */
-	drv = driver_find("rt5514", &spi_bus_type);
-	if (!drv) {
-		dev_err(&pdev->dev, "Can not find the rt5514 driver at the spi bus\n");
-		return -EINVAL;
-	}
-
-	dev = driver_find_device(drv, NULL, NULL, rockchip_sound_match_stub);
-	if (!dev) {
-		dev_err(&pdev->dev, "Can not find the rt5514 device\n");
-		return -ENODEV;
-	}
-
-	cpu_node = of_parse_phandle(pdev->dev.of_node, "rockchip,cpu", 1);
-	if (!cpu_node) {
-		dev_err(&pdev->dev, "Property 'rockchip,cpu 1' missing or invalid\n");
-		return -EINVAL;
-	}
-
-	rockchip_dailinks[DAILINK_CDNDP].platform_of_node = cpu_node;
-	rockchip_dailinks[DAILINK_CDNDP].cpu_of_node = cpu_node;
-
-	rockchip_dailinks[DAILINK_CDNDP].codec_of_node =
-		of_parse_phandle(pdev->dev.of_node, "rockchip,codec",
-				 DAILINK_CDNDP);
-	if (!rockchip_dailinks[DAILINK_CDNDP].codec_of_node) {
-		dev_err(&pdev->dev,
-			"Property[%d] 'rockchip,codec' missing or invalid\n",
-			DAILINK_CDNDP);
-		return -EINVAL;
-	}
-
-	rockchip_dailinks[DAILINK_RT5514_DSP].cpu_name = kstrdup_const(dev_name(dev), GFP_KERNEL);
-	rockchip_dailinks[DAILINK_RT5514_DSP].cpu_dai_name = kstrdup_const(dev_name(dev), GFP_KERNEL);
-	rockchip_dailinks[DAILINK_RT5514_DSP].platform_name = kstrdup_const(dev_name(dev), GFP_KERNEL);
 
 	card->dev = &pdev->dev;
 	platform_set_drvdata(pdev, card);

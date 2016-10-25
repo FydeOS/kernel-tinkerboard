@@ -17,6 +17,9 @@
  * battery charging and regulator control, firmware update.
  */
 
+#ifdef CONFIG_ACPI
+#include <linux/acpi.h>
+#endif
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/mfd/core.h>
@@ -29,6 +32,82 @@
 
 #define CROS_EC_DEV_EC_INDEX 0
 #define CROS_EC_DEV_PD_INDEX 1
+
+#ifdef CONFIG_ACPI
+#define ACPI_LID_DEVICE      "LID0"
+
+static int ec_wake_gpe = -1;
+
+/*
+ * Installing a GPE handler to indicate to ACPI core
+ * that this GPE should stay enabled for lid to work in
+ * suspend to idle path
+ */
+
+static u32 cros_ec_gpe_handler(acpi_handle gpe_device,
+			       u32 gpe_number, void *data)
+{
+	return ACPI_INTERRUPT_HANDLED | ACPI_REENABLE_GPE;
+}
+
+static int cros_ec_get_ec_wake_gpe(struct device *dev)
+{
+
+	/*
+	 * EC contains cros_ec and LID0 devices
+	 * LID0 device includes the EC_WAKE_GPE in PRW
+	 * This code goes looks for LID0 acpi device.
+	 */
+	acpi_handle parent_handle = ACPI_COMPANION(dev)->parent->handle;
+	struct acpi_device *adev;
+	acpi_handle handle;
+	acpi_status status;
+
+	status = acpi_get_handle(parent_handle, ACPI_LID_DEVICE, &handle);
+
+	if (ACPI_FAILURE(status)) {
+		dev_err(dev, "Unable to find ACPI device %s: %d\n",
+			ACPI_LID_DEVICE, status);
+		return -ENXIO;
+	}
+
+	adev = acpi_bus_get_acpi_device(handle);
+
+	if (adev)
+		return adev->wakeup.gpe_number;
+	else {
+		dev_err(dev, "Unable to get ACPI device handle %s\n",
+			ACPI_LID_DEVICE);
+		return -ENXIO;
+	}
+}
+
+static int cros_ec_install_handler(struct device *dev)
+{
+	acpi_status status;
+
+	ec_wake_gpe = cros_ec_get_ec_wake_gpe(dev);
+
+	if (ec_wake_gpe >= 0) {
+		status = acpi_install_gpe_handler(NULL, ec_wake_gpe,
+				ACPI_GPE_EDGE_TRIGGERED,
+				&cros_ec_gpe_handler, NULL);
+
+		if (ACPI_FAILURE(status)) {
+			dev_err(dev,
+				"Failed to install GPE handler with GPE "
+				"number 0x%x\n", ec_wake_gpe);
+			return -ENODEV;
+		}
+
+		dev_info(dev, "Initialized, GPE = 0x%x\n", ec_wake_gpe);
+	} else {
+		dev_err(dev, "EC Wake GPE not found \n");
+		return -ENODEV;
+	}
+	return 0;
+}
+#endif
 
 static struct cros_ec_dev_platform ec_p = {
 	.ec_name = CROS_EC_DEV_NAME,
@@ -253,6 +332,10 @@ int cros_ec_register(struct cros_ec_device *ec_dev)
 
 	dev_info(dev, "Chrome EC device registered\n");
 
+#ifdef CONFIG_ACPI
+	cros_ec_install_handler(dev);
+#endif
+
 	return 0;
 
 mfd_err:
@@ -275,8 +358,20 @@ int cros_ec_suspend(struct cros_ec_device *ec_dev)
 {
 	struct device *dev = ec_dev->dev;
 	int ret;
+	u8 sleep_event;
 
-	ret = cros_ec_sleep_event(ec_dev, HOST_SLEEP_EVENT_S3_SUSPEND);
+	if (!pm_suspend_via_firmware()) {
+		sleep_event = HOST_SLEEP_EVENT_S0IX_SUSPEND;
+#ifdef CONFIG_ACPI
+		/* Clearing the GPE status for any pending event */
+		if (ec_wake_gpe >= 0)
+			acpi_clear_gpe(NULL, ec_wake_gpe);
+#endif
+	}
+	else
+		sleep_event = HOST_SLEEP_EVENT_S3_SUSPEND;
+
+	ret = cros_ec_sleep_event(ec_dev, sleep_event);
 	if (ret < 0)
 		dev_dbg(ec_dev->dev, "Error %d sending suspend event to ec",
 			ret);
@@ -302,11 +397,16 @@ static void cros_ec_drain_events(struct cros_ec_device *ec_dev)
 int cros_ec_resume(struct cros_ec_device *ec_dev)
 {
 	int ret;
+	u8 sleep_event;
+
+	sleep_event = pm_suspend_via_firmware() ?
+			HOST_SLEEP_EVENT_S3_RESUME :
+			HOST_SLEEP_EVENT_S0IX_RESUME;
 
 	ec_dev->suspended = false;
 	enable_irq(ec_dev->irq);
 
-	ret = cros_ec_sleep_event(ec_dev, HOST_SLEEP_EVENT_S3_RESUME);
+	ret = cros_ec_sleep_event(ec_dev, sleep_event);
 	if (ret < 0)
 		dev_dbg(ec_dev->dev, "Error %d sending resume event to ec",
 			ret);

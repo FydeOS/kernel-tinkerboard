@@ -31,6 +31,10 @@ Required properties:
 
 - #sound-dai-cells = it must be 1 if your system is using 2 DAIs: I2S, SPDIF
 
+Optional properties:
+- nvmem-cells: A phandle to the cpu-id data provided by nvmem device.
+- nvmem-cell-names: Should be "cpu-id"
+
 -------------------------------------------------------------------------------
 
 Example:
@@ -52,6 +56,8 @@ Example:
 		#address-cells = <1>;
 		#size-cells = <0>;
 		#sound-dai-cells = <1>;
+		nvmem-cells = <&cpu_id>;
+		nvmem-cell-names = "cpu-id";
 
 		ports {
 			#address-cells = <1>;

@@ -127,5 +127,6 @@ struct cdn_dp_device {
 	bool sink_has_audio;
 
 	struct cdn_dp_hdcp_key_1x key;
+	struct delayed_work hdcp_event_work;
 };
 #endif  /* _CDN_DP_CORE_H */

@@ -1320,6 +1320,21 @@ static int rk_iommu_genpd_notify(struct notifier_block *nb,
 	return notifier_from_errno(ret);
 }
 
+/*
+ * The callbacks below are only needed because pm_runtime_no_callbacks() is not
+ * compatible with genpd, while leaving them out would otherwise make
+ * pm_runtime_force_{suspend,resume} and rpm_{suspend,resume} fail with
+ * -ENOSYS if the IOMMU is not attached to a pm_domain. All the real work is
+ * done in the genpd notifier.
+ */
+static int rk_iommu_runtime_suspend(struct device *dev) { return 0; }
+static int rk_iommu_runtime_resume(struct device *dev) { return 0; }
+
+static const struct dev_pm_ops rk_iommu_pm_ops = {
+	SET_RUNTIME_PM_OPS(rk_iommu_runtime_suspend, rk_iommu_runtime_resume,
+			   NULL)
+};
+
 static int rk_iommu_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -1367,7 +1382,6 @@ static int rk_iommu_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	pm_runtime_no_callbacks(dev);
 	pm_runtime_set_active(dev);
 	pm_runtime_enable(dev);
 
@@ -1400,6 +1414,7 @@ static struct platform_driver rk_iommu_driver = {
 	.driver = {
 		   .name = "rk_iommu",
 		   .of_match_table = rk_iommu_dt_ids,
+		   .pm = &rk_iommu_pm_ops,
 	},
 };
 

@@ -135,8 +135,16 @@ struct vop_win_data {
 	enum drm_plane_type type;
 };
 
+enum vop_id {
+	RK3036_VOP,
+	RK3288_VOP,
+	RK3399_VOP_BIG,
+	RK3399_VOP_LIT,
+};
+
 struct vop_data {
 	const struct vop_reg_data *init_table;
+	uint32_t id;
 	unsigned int table_size;
 	const struct vop_ctrl *ctrl;
 	const struct vop_intr *intr;
@@ -320,6 +328,8 @@ static inline int scl_vop_cal_lb_mode(int width, bool is_yuv)
 
 	return lb_mode;
 }
+
+enum vop_id vop_get_crtc_vop_id(struct drm_crtc *crtc);
 
 extern const struct component_ops vop_component_ops;
 #endif /* _ROCKCHIP_DRM_VOP_H */

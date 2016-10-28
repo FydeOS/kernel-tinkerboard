@@ -570,21 +570,20 @@ static void cdn_dp_encoder_mode_set(struct drm_encoder *encoder,
 	video->v_sync_polarity = !!(mode->flags & DRM_MODE_FLAG_NVSYNC);
 	video->h_sync_polarity = !!(mode->flags & DRM_MODE_FLAG_NHSYNC);
 
-	ret = drm_of_encoder_active_endpoint_id(dp->dev->of_node, encoder);
-	if (ret < 0) {
-		DRM_DEV_ERROR(dp->dev, "Could not get vop id, %d", ret);
-		return;
-	}
-
-	DRM_DEV_DEBUG_KMS(dp->dev, "vop %s output to cdn-dp\n",
-			  (ret) ? "LIT" : "BIG");
 	state = to_rockchip_crtc_state(encoder->crtc->state);
-	if (ret) {
+	switch (vop_get_crtc_vop_id(encoder->crtc)) {
+	case RK3399_VOP_LIT:
+		DRM_DEV_DEBUG_KMS(dp->dev, "vop LIT output to cdn-dp\n");
 		val = DP_SEL_VOP_LIT | (DP_SEL_VOP_LIT << 16);
 		state->output_mode = ROCKCHIP_OUT_MODE_P888;
-	} else {
+		break;
+	case RK3399_VOP_BIG:
+		DRM_DEV_DEBUG_KMS(dp->dev, "vop BIG output to cdn-dp\n");
 		val = DP_SEL_VOP_LIT << 16;
 		state->output_mode = ROCKCHIP_OUT_MODE_AAAA;
+		break;
+	default:
+		break;
 	}
 
 	ret = cdn_dp_grf_write(dp, GRF_SOC_CON9, val);

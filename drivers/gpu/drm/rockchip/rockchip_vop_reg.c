@@ -131,6 +131,7 @@ static const struct vop_reg_data rk3036_vop_init_reg_table[] = {
 };
 
 static const struct vop_data rk3036_vop = {
+	.id = RK3036_VOP,
 	.init_table = rk3036_vop_init_reg_table,
 	.table_size = ARRAY_SIZE(rk3036_vop_init_reg_table),
 	.ctrl = &rk3036_ctrl_data,
@@ -272,6 +273,7 @@ static const struct vop_intr rk3288_vop_intr = {
 };
 
 static const struct vop_data rk3288_vop = {
+	.id = RK3288_VOP,
 	.init_table = rk3288_init_reg_table,
 	.table_size = ARRAY_SIZE(rk3288_init_reg_table),
 	.intr = &rk3288_vop_intr,
@@ -340,6 +342,7 @@ static const struct vop_reg_data rk3399_init_reg_table[] = {
 };
 
 static const struct vop_data rk3399_vop_big = {
+	.id = RK3399_VOP_BIG,
 	.init_table = rk3399_init_reg_table,
 	.table_size = ARRAY_SIZE(rk3399_init_reg_table),
 	.intr = &rk3399_vop_intr,
@@ -359,6 +362,7 @@ static const struct vop_win_data rk3399_vop_lit_win_data[] = {
 };
 
 static const struct vop_data rk3399_vop_lit = {
+	.id = RK3399_VOP_LIT,
 	.init_table = rk3399_init_reg_table,
 	.table_size = ARRAY_SIZE(rk3399_init_reg_table),
 	.intr = &rk3399_vop_intr,

@@ -878,7 +878,6 @@ static void dw_mipi_dsi_encoder_disable(struct drm_encoder *encoder)
 static void dw_mipi_dsi_encoder_commit(struct drm_encoder *encoder)
 {
 	struct dw_mipi_dsi *dsi = encoder_to_dsi(encoder);
-	int mux = drm_of_encoder_active_endpoint_id(dsi->dev->of_node, encoder);
 	u32 val;
 
 	if (clk_prepare_enable(dsi->pclk)) {
@@ -894,13 +893,18 @@ static void dw_mipi_dsi_encoder_commit(struct drm_encoder *encoder)
 
 	clk_disable_unprepare(dsi->pclk);
 
-	if (mux)
+	switch (vop_get_crtc_vop_id(encoder->crtc)) {
+	case RK3399_VOP_LIT:
+		dev_dbg(dsi->dev, "vop LIT output to dsi0\n");
 		val = DSI0_SEL_VOP_LIT | (DSI0_SEL_VOP_LIT << 16);
-	else
+		break;
+	default:
+		dev_dbg(dsi->dev, "vop BIG output to dsi0\n");
 		val = DSI0_SEL_VOP_LIT << 16;
+		break;
+	}
 
 	regmap_write(dsi->grf_regmap, GRF_SOC_CON6, val);
-	dev_dbg(dsi->dev, "vop %s output to dsi0\n", (mux) ? "LIT" : "BIG");
 }
 
 static int

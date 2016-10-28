@@ -196,14 +196,16 @@ static void rockchip_dp_drm_encoder_enable(struct drm_encoder *encoder)
 	int ret;
 	u32 val;
 
-	ret = drm_of_encoder_active_endpoint_id(dp->dev->of_node, encoder);
-	if (ret < 0)
-		return;
-
-	if (ret)
+	switch (vop_get_crtc_vop_id(encoder->crtc)) {
+	case RK3399_VOP_LIT:
 		val = dp->data->lcdsel_lit;
-	else
+		break;
+	case RK3399_VOP_BIG:
 		val = dp->data->lcdsel_big;
+		break;
+	default:
+		return;
+	}
 
 	dev_dbg(dp->dev, "vop %s output to dp\n", (ret) ? "LIT" : "BIG");
 
@@ -231,34 +233,23 @@ rockchip_dp_drm_encoder_atomic_check(struct drm_encoder *encoder,
 				      struct drm_connector_state *conn_state)
 {
 	struct rockchip_crtc_state *s = to_rockchip_crtc_state(crtc_state);
-	struct rockchip_dp_device *dp = to_dp(encoder);
-	int ret;
 
-	/*
-	 * The hardware IC designed that VOP must output the RGB10 video
-	 * format to eDP contoller, and if eDP panel only support RGB8,
-	 * then eDP contoller should cut down the video data, not via VOP
-	 * contoller, that's why we need to hardcode the VOP output mode
-	 * to RGA10 here.
-	 */
-
-	ret = drm_of_encoder_active_endpoint_id(dp->dev->of_node, encoder);
-	if (ret < 0)
-		return 0;
-
-	switch (dp->data->chip_type) {
-	case RK3399_EDP:
+	switch (vop_get_crtc_vop_id(crtc_state->crtc)) {
+	case RK3399_VOP_LIT:
 		/*
 		 * For RK3399, VOP Lit must code the out mode to RGB888,
 		 * VOP Big must code the out mode to RGB10.
 		 */
-		if (ret)
-			s->output_mode = ROCKCHIP_OUT_MODE_P888;
-		else
-			s->output_mode = ROCKCHIP_OUT_MODE_AAAA;
+		s->output_mode = ROCKCHIP_OUT_MODE_P888;
 		break;
-
 	default:
+		/*
+		 * The hardware IC designed that VOP must output the RGB10 video
+		 * format to eDP contoller, and if eDP panel only support RGB8,
+		 * then eDP contoller should cut down the video data, not via VOP
+		 * contoller, that's why we need to hardcode the VOP output mode
+		 * to RGA10 here.
+		 */
 		s->output_mode = ROCKCHIP_OUT_MODE_AAAA;
 		break;
 	}

@@ -143,6 +143,13 @@ struct vop {
 	struct vop_win win[];
 };
 
+enum vop_id vop_get_crtc_vop_id(struct drm_crtc *crtc)
+{
+	struct vop *vop = to_vop(crtc);
+
+	return vop->data->id;
+}
+
 static inline void vop_writel(struct vop *vop, uint32_t offset, uint32_t v)
 {
 	writel(v, vop->regs + offset);

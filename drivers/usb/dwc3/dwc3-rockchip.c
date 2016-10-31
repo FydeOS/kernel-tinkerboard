@@ -141,11 +141,16 @@ static void dwc3_rockchip_otg_extcon_evt_work(struct work_struct *work)
 		spin_unlock_irqrestore(&dwc->lock, flags);
 
 		/*
-		 * The following sleep helps to ensure that inserted USB3
-		 * Ethernet devices are discovered if already inserted
-		 * when booting.
+		 * The following sleep helps to ensure that inserted
+		 * some special USB3 devices are discovered.
+		 * 1. USB3 Ethernet devices are already inserted when
+		 * booting, need sleep at least 10ms.
+		 * 2. USB3 Apple USB-C Dock with USB3 Transcend Flash
+		 * Drive 16GB inserted at the same time, need sleep at
+		 * least 300ms to ensure that the Transcend Flash Drive
+		 * is discovered successfully.
 		 */
-		msleep(10);
+		msleep(300);
 
 		if (hcd->state == HC_STATE_HALT) {
 			usb_add_hcd(hcd, hcd->irq, IRQF_SHARED);

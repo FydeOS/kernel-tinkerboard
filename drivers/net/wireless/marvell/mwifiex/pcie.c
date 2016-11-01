@@ -511,6 +511,7 @@ static int mwifiex_init_txq_ring(struct mwifiex_adapter *adapter)
 		}
 	}
 
+	atomic_set(&adapter->tx_hw_pending, 0);
 	return 0;
 }
 
@@ -655,6 +656,7 @@ static void mwifiex_cleanup_txq_ring(struct mwifiex_adapter *adapter)
 		card->tx_buf_list[i] = NULL;
 	}
 
+	atomic_set(&adapter->tx_hw_pending, 0);
 	return;
 }
 
@@ -1092,6 +1094,7 @@ static int mwifiex_pcie_send_data_complete(struct mwifiex_adapter *adapter)
 							    -1);
 			else
 				mwifiex_write_data_complete(adapter, skb, 0, 0);
+			atomic_dec(&adapter->tx_hw_pending);
 		}
 
 		card->tx_buf_list[wrdoneidx] = NULL;
@@ -1184,6 +1187,7 @@ mwifiex_pcie_send_data(struct mwifiex_adapter *adapter, struct sk_buff *skb,
 		wrindx = (card->txbd_wrptr & reg->tx_mask) >> reg->tx_start_ptr;
 		buf_pa = MWIFIEX_SKB_DMA_ADDR(skb);
 		card->tx_buf_list[wrindx] = skb;
+		atomic_inc(&adapter->tx_hw_pending);
 
 		if (reg->pfu_enabled) {
 			desc2 = card->txbd_ring[wrindx];
@@ -1261,6 +1265,7 @@ mwifiex_pcie_send_data(struct mwifiex_adapter *adapter, struct sk_buff *skb,
 done_unmap:
 	mwifiex_unmap_pci_memory(adapter, skb, PCI_DMA_TODEVICE);
 	card->tx_buf_list[wrindx] = NULL;
+	atomic_dec(&adapter->tx_hw_pending);
 	if (reg->pfu_enabled)
 		memset(desc2, 0, sizeof(*desc2));
 	else

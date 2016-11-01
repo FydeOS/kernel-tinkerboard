@@ -41,6 +41,7 @@
 
 #define CR50_MAX_BUFSIZE	63
 #define CR50_TIMEOUT_SHORT_MS	2	/* Short timeout during transactions */
+#define CR50_TIMEOUT_NOIRQ_MS	20	/* Timeout for TPM ready without IRQ */
 #define CR50_I2C_DID_VID	0x00281ae0L
 
 struct priv_data {
@@ -78,16 +79,18 @@ static int cr50_i2c_wait_tpm_ready(struct tpm_chip *chip)
 
 	/* Use a safe fixed delay if interrupt is not supported */
 	if (priv->irq <= 0) {
-		msleep_interruptible(CR50_TIMEOUT_SHORT_MS);
+		msleep_interruptible(CR50_TIMEOUT_NOIRQ_MS);
 		return 1;
 	}
 
 	/* Wait for interrupt to indicate TPM is ready to respond */
 	rc = wait_for_completion_interruptible_timeout(&priv->tpm_ready,
-		msecs_to_jiffies(5 * CR50_TIMEOUT_SHORT_MS));
+		msecs_to_jiffies(chip->timeout_a));
 
-	if (rc == 0)
+	if (rc == 0) {
+		dev_err(&chip->dev, "Timeout waiting for TPM ready\n");
 		return -ETIMEDOUT;
+	}
 	return (int)rc;
 }
 
@@ -570,6 +573,9 @@ static int cr50_i2c_init(struct i2c_client *client)
 
 		disable_irq(client->irq);
 		priv->irq = client->irq;
+	} else {
+		dev_warn(dev, "No IRQ, will use %ums delay for TPM ready\n",
+			 CR50_TIMEOUT_NOIRQ_MS);
 	}
 
 	rc = request_locality(chip, 0);

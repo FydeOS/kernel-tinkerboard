@@ -875,7 +875,7 @@ static void cdn_dp_audio_config_i2s(struct cdn_dp_device *dp,
 
 	for (i = 0; i < (audio->channels + 1) / 2; i++) {
 		if (audio->sample_width == 16)
-			val = (0x08 << 8) | (0x08 << 20);
+			val = (0x02 << 8) | (0x02 << 20);
 		else if (audio->sample_width == 24)
 			val = (0x0b << 8) | (0x0b << 20);
 

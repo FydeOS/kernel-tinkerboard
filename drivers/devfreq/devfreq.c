@@ -359,9 +359,11 @@ void devfreq_monitor_suspend(struct devfreq *devfreq)
 		mutex_unlock(&devfreq->lock);
 		return;
 	}
-
-	devfreq_update_status(devfreq, devfreq->previous_freq);
 	devfreq->stop_polling = true;
+	if (devfreq->suspend_freq)
+		update_devfreq(devfreq);
+	else
+		devfreq_update_status(devfreq, devfreq->previous_freq);
 	mutex_unlock(&devfreq->lock);
 	cancel_delayed_work_sync(&devfreq->work);
 }
@@ -390,7 +392,6 @@ void devfreq_monitor_resume(struct devfreq *devfreq)
 
 	devfreq->last_stat_updated = jiffies;
 	devfreq->stop_polling = false;
-
 	if (devfreq->profile->get_cur_freq &&
 		!devfreq->profile->get_cur_freq(devfreq->dev.parent, &freq))
 		devfreq->previous_freq = freq;
@@ -524,6 +525,7 @@ struct devfreq *devfreq_add_device(struct device *dev,
 	struct devfreq *devfreq;
 	struct devfreq_governor *governor;
 	int err = 0;
+	struct dev_pm_opp *suspend_opp;
 
 	if (!dev || !profile || !governor_name) {
 		dev_err(dev, "%s: Invalid parameters.\n", __func__);
@@ -557,6 +559,12 @@ struct devfreq *devfreq_add_device(struct device *dev,
 	devfreq->previous_freq = profile->initial_freq;
 	devfreq->data = data;
 	devfreq->nb.notifier_call = devfreq_notifier_call;
+
+	rcu_read_lock();
+	suspend_opp = dev_pm_opp_get_suspend_opp(dev);
+	if (suspend_opp)
+		devfreq->suspend_freq = dev_pm_opp_get_freq(suspend_opp);
+	rcu_read_unlock();
 
 	if (!devfreq->profile->max_state && !devfreq->profile->freq_table) {
 		mutex_unlock(&devfreq->lock);

@@ -29,6 +29,15 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 	struct devfreq_simple_ondemand_data *data = df->data;
 	unsigned long max = (df->max_freq) ? df->max_freq : UINT_MAX;
 
+	/*
+	 * if devfreq in suspend status and have suspend_freq,
+	 * the frequency need to set to suspend_freq
+	 */
+	if (df->stop_polling) {
+		*freq =	df->suspend_freq;
+		return 0;
+	}
+
 	err = devfreq_update_stats(df);
 	if (err)
 		return err;

@@ -230,6 +230,12 @@ ap_i2c_nfc: &i2c7 {
 				<RK_GPIO1 24 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 	};
+
+	wifi {
+		wlan_host_wake_l: wlan-host-wake-l {
+			rockchip,pins = <0 8 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
 };
 
 /* DON'T PUT ANYTHING BELOW HERE.  PUT IT ABOVE PINCTRL */

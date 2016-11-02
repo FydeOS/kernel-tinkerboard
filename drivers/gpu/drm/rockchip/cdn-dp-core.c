@@ -455,12 +455,12 @@ static int cdn_dp_disable_phy(struct cdn_dp_device *dp,
 {
 	int ret;
 
-	WARN_ON(!port->phy_enabled);
-
-	ret = phy_power_off(port->phy);
-	if (ret) {
-		DRM_DEV_ERROR(dp->dev, "phy power off failed: %d", ret);
-		return ret;
+	if (port->phy_enabled) {
+		ret = phy_power_off(port->phy);
+		if (ret) {
+			DRM_DEV_ERROR(dp->dev, "phy power off failed: %d", ret);
+			return ret;
+		}
 	}
 
 	port->phy_enabled = false;
@@ -475,10 +475,8 @@ static int cdn_dp_disable(struct cdn_dp_device *dp)
 	if (!dp->active)
 		return 0;
 
-	for (i = 0; i < dp->ports; i++) {
-		if (cdn_dp_get_port_lanes(dp->port[i]))
-			cdn_dp_disable_phy(dp, dp->port[i]);
-	}
+	for (i = 0; i < dp->ports; i++)
+		cdn_dp_disable_phy(dp, dp->port[i]);
 
 	ret = cdn_dp_grf_write(dp, GRF_SOC_CON26,
 			       DPTX_HPD_SEL_MASK | DPTX_HPD_DEL);
@@ -493,6 +491,11 @@ static int cdn_dp_disable(struct cdn_dp_device *dp)
 	dp->active = false;
 	dp->link.rate = 0;
 	dp->link.num_lanes = 0;
+	if (!dp->connected) {
+		kfree(dp->edid);
+		dp->edid = NULL;
+	}
+
 	return 0;
 }
 
@@ -911,8 +914,7 @@ static void cdn_dp_pd_event_work(struct work_struct *work)
 {
 	struct cdn_dp_device *dp = container_of(work, struct cdn_dp_device,
 						event_work);
-	struct cdn_dp_port *port;
-	int ret, i, lanes;
+	int ret;
 	u8 sink_count;
 
 	mutex_lock(&dp->lock);
@@ -924,24 +926,12 @@ static void cdn_dp_pd_event_work(struct work_struct *work)
 	if (ret)
 		goto out;
 
-	/* Disable any ports that have just become inactive */
-	for (i = 0; i < dp->ports; i++) {
-		port = dp->port[i];
-		lanes = cdn_dp_get_port_lanes(port);
-		if (!lanes && port->lanes)
-			cdn_dp_disable_phy(dp, port);
-	}
+	dp->connected = true;
 
-	/* Not connected, disable the block */
+	/* Not connected, notify userspace to disable the block */
 	if (!cdn_dp_connected_port(dp)) {
 		DRM_DEV_INFO(dp->dev, "Not connected. Disabling cdn\n");
-		ret = cdn_dp_disable(dp);
-		if (ret)
-			DRM_DEV_ERROR(dp->dev, "Disable dp failed %d\n", ret);
 		dp->connected = false;
-		kfree(dp->edid);
-		dp->edid = NULL;
-		goto out;
 
 	/* Connected but not enabled, enable the block */
 	} else if (!dp->active) {
@@ -949,43 +939,41 @@ static void cdn_dp_pd_event_work(struct work_struct *work)
 		ret = cdn_dp_enable(dp);
 		if (ret) {
 			DRM_DEV_ERROR(dp->dev, "Enable dp failed %d\n", ret);
-			goto out;
+			dp->connected = false;
 		}
-		dp->connected = true;
 
 	/* Enabled and connected to a dongle without a sink, notify userspace */
 	} else if (cdn_dp_get_sink_count(dp, &sink_count) || !sink_count) {
 		DRM_DEV_INFO(dp->dev, "Connected without sink. Assert hpd\n");
 		dp->connected = false;
-		kfree(dp->edid);
-		dp->edid = NULL;
-		goto out;
 
 	/* Enabled and connected with a sink, re-train if requested */
 	} else if (!cdn_dp_check_link_status(dp)) {
 		unsigned int rate = dp->link.rate;
-		unsigned int num_lanes = dp->link.num_lanes;
+		unsigned int lanes = dp->link.num_lanes;
+		struct drm_display_mode *mode = &dp->mode;
 
 		DRM_DEV_INFO(dp->dev, "Connected with sink. Re-train link\n");
 		ret = cdn_dp_train_link(dp);
 		if (ret) {
+			dp->connected = false;
 			DRM_DEV_ERROR(dp->dev, "Train link failed %d\n", ret);
 			goto out;
 		}
 
 		/* If training result is changed, update the video config */
-		if (rate != dp->link.rate || num_lanes != dp->link.num_lanes) {
+		if (mode->clock &&
+		    (rate != dp->link.rate || lanes != dp->link.num_lanes)) {
 			ret = cdn_dp_config_video(dp);
 			if (ret) {
+				dp->connected = false;
 				DRM_DEV_ERROR(dp->dev,
 					      "Failed to config video %d\n",
 					      ret);
-				goto out;
 			}
 		}
-
-		dp->connected = true;
 	}
+
 out:
 	mutex_unlock(&dp->lock);
 	drm_helper_hpd_irq_event(dp->drm_dev);

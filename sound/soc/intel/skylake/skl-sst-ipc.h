@@ -85,6 +85,8 @@ struct skl_sst {
 	struct skl_lib_info  lib_info[SKL_MAX_LIB];
 	int lib_count;
 
+	/* Callback to update D0i3C register */
+	void (*update_d0i3c)(struct device *dev, bool enable);
 };
 
 struct skl_ipc_init_instance_msg {

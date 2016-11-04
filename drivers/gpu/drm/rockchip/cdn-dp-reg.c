@@ -677,6 +677,7 @@ int cdn_dp_config_video(struct cdn_dp_device *dp)
 		 (rem > 850) || (rem < 100));
 
 	val = symbol + (tu_size_reg << 8);
+	val |= TU_CNT_RST_EN;
 	ret = cdn_dp_reg_write(dp, DP_FRAMER_TU, val);
 	if (ret)
 		goto err_config_video;

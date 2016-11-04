@@ -79,12 +79,12 @@ static int cr50_i2c_wait_tpm_ready(struct tpm_chip *chip)
 
 	/* Use a safe fixed delay if interrupt is not supported */
 	if (priv->irq <= 0) {
-		msleep_interruptible(CR50_TIMEOUT_NOIRQ_MS);
+		msleep(CR50_TIMEOUT_NOIRQ_MS);
 		return 1;
 	}
 
 	/* Wait for interrupt to indicate TPM is ready to respond */
-	rc = wait_for_completion_interruptible_timeout(&priv->tpm_ready,
+	rc = wait_for_completion_timeout(&priv->tpm_ready,
 		msecs_to_jiffies(chip->timeout_a));
 
 	if (rc == 0) {
@@ -309,7 +309,7 @@ static int request_locality(struct tpm_chip *chip, int loc)
 			priv->locality = loc;
 			return loc;
 		}
-		msleep_interruptible(CR50_TIMEOUT_SHORT_MS);
+		msleep(CR50_TIMEOUT_SHORT_MS);
 	} while (time_before(jiffies, stop));
 
 	return -ETIMEDOUT;
@@ -333,7 +333,7 @@ static void cr50_i2c_tis_ready(struct tpm_chip *chip)
 	u8 buf[4] = { TPM_STS_COMMAND_READY };
 
 	cr50_i2c_write(chip, TPM_STS(priv->locality), buf, sizeof(buf));
-	msleep_interruptible(CR50_TIMEOUT_SHORT_MS);
+	msleep(CR50_TIMEOUT_SHORT_MS);
 }
 
 /*
@@ -352,7 +352,7 @@ static int cr50_i2c_wait_burststs(struct tpm_chip *chip, u8 mask,
 	do {
 		if (cr50_i2c_read(chip, TPM_STS(priv->locality),
 				  (u8 *)&buf, sizeof(buf)) < 0) {
-			msleep_interruptible(CR50_TIMEOUT_SHORT_MS);
+			msleep(CR50_TIMEOUT_SHORT_MS);
 			continue;
 		}
 
@@ -363,7 +363,7 @@ static int cr50_i2c_wait_burststs(struct tpm_chip *chip, u8 mask,
 		    *burst > 0 && *burst <= CR50_MAX_BUFSIZE)
 			return 0;
 
-		msleep_interruptible(CR50_TIMEOUT_SHORT_MS);
+		msleep(CR50_TIMEOUT_SHORT_MS);
 	} while (time_before(jiffies, stop));
 
 	dev_err(&chip->dev, "Timeout reading burst and status\n");

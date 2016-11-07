@@ -334,16 +334,56 @@ static void rk3399_vdec_h264d_assemble_hw_rps(struct rockchip_vpu_ctx *ctx)
 	}
 }
 
-static void rk3399_vdec_h264d_assemble_scaling_list(
-	struct rockchip_vpu_ctx *ctx)
+/*
+ * NOTE: The values in a scaling list are in zig-zag order, apply inverse
+ * scanning process to get the values in matrix order.
+ */
+
+static const u32 zig_zag_4x4[16] = {
+	0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14, 15
+};
+
+static const u32 zig_zag_8x8[64] = {
+	0,  1,  8, 16,  9,  2,  3, 10, 17, 24, 32, 25, 18, 11,  4,  5,
+	12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13,  6,  7, 14, 21, 28,
+	35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+	58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63
+};
+
+static void rk3399_vpu_h264d_reorder_scaling_list(struct rockchip_vpu_ctx *ctx)
 {
 	const struct v4l2_ctrl_h264_scaling_matrix *scaling =
 		ctx->run.h264d.scaling_matrix;
-	struct rk3399_vdec_h264d_priv_tbl *priv_tbl =
-		ctx->hw.h264d.priv_tbl.cpu;
-	u8 *hw_scaling = priv_tbl->scaling_list;
+	const size_t num_list_4x4 = ARRAY_SIZE(scaling->scaling_list_4x4);
+	const size_t list_len_4x4 = ARRAY_SIZE(scaling->scaling_list_4x4[0]);
+	const size_t num_list_8x8 = ARRAY_SIZE(scaling->scaling_list_8x8);
+	const size_t list_len_8x8 = ARRAY_SIZE(scaling->scaling_list_8x8[0]);
+	struct rk3399_vdec_h264d_priv_tbl *tbl = ctx->hw.h264d.priv_tbl.cpu;
+	u8 *dst = tbl->scaling_list;
+	const u8 *src;
+	int i, j;
 
-	memcpy(hw_scaling, scaling, sizeof(*scaling));
+	BUILD_BUG_ON(ARRAY_SIZE(zig_zag_4x4) != list_len_4x4);
+	BUILD_BUG_ON(ARRAY_SIZE(zig_zag_8x8) != list_len_8x8);
+	BUILD_BUG_ON(ARRAY_SIZE(tbl->scaling_list) <
+		     num_list_4x4 * list_len_4x4 +
+		     num_list_8x8 * list_len_8x8);
+
+	src = &scaling->scaling_list_4x4[0][0];
+	for (i = 0; i < num_list_4x4; ++i) {
+		for (j = 0; j < list_len_4x4; ++j)
+			dst[zig_zag_4x4[j]] = src[j];
+		src += list_len_4x4;
+		dst += list_len_4x4;
+	}
+
+	src = &scaling->scaling_list_8x8[0][0];
+	for (i = 0; i < num_list_8x8; ++i) {
+		for (j = 0; j < list_len_8x8; ++j)
+			dst[zig_zag_8x8[j]] = src[j];
+		src += list_len_8x8;
+		dst += list_len_8x8;
+	}
 }
 
 int rk3399_vdec_h264d_init(struct rockchip_vpu_ctx *ctx)
@@ -380,7 +420,7 @@ void rk3399_vdec_h264d_exit(struct rockchip_vpu_ctx *ctx)
 
 static void rk3399_vdec_h264d_prepare_table(struct rockchip_vpu_ctx *ctx)
 {
-	rk3399_vdec_h264d_assemble_scaling_list(ctx);
+	rk3399_vpu_h264d_reorder_scaling_list(ctx);
 	rk3399_vdec_h264d_assemble_hw_pps(ctx);
 	rk3399_vdec_h264d_assemble_hw_rps(ctx);
 }

@@ -1183,9 +1183,19 @@ static int cdn_dp_probe(struct platform_device *pdev)
 
 static int cdn_dp_remove(struct platform_device *pdev)
 {
+	struct cdn_dp_device *dp = platform_get_drvdata(pdev);
+
+	cdn_dp_suspend(dp->dev);
 	component_del(&pdev->dev, &cdn_dp_component_ops);
 
 	return 0;
+}
+
+static void cdn_dp_shutdown(struct platform_device *pdev)
+{
+	struct cdn_dp_device *dp = platform_get_drvdata(pdev);
+
+	cdn_dp_suspend(dp->dev);
 }
 
 static const struct dev_pm_ops cdn_dp_pm_ops = {
@@ -1196,6 +1206,7 @@ static const struct dev_pm_ops cdn_dp_pm_ops = {
 static struct platform_driver cdn_dp_driver = {
 	.probe = cdn_dp_probe,
 	.remove = cdn_dp_remove,
+	.shutdown = cdn_dp_shutdown,
 	.driver = {
 		   .name = "cdn-dp",
 		   .owner = THIS_MODULE,

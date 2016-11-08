@@ -185,10 +185,6 @@ static unsigned int pin_job(struct host1x_job *job)
 		struct sg_table *sgt;
 		dma_addr_t phys_addr;
 
-		reloc->target.bo = host1x_bo_get(reloc->target.bo);
-		if (!reloc->target.bo)
-			goto unpin;
-
 		phys_addr = host1x_bo_pin(reloc->target.bo, &sgt);
 		if (!phys_addr)
 			goto unpin;
@@ -203,10 +199,6 @@ static unsigned int pin_job(struct host1x_job *job)
 		struct host1x_job_gather *g = &job->gathers[i];
 		struct sg_table *sgt;
 		dma_addr_t phys_addr;
-
-		g->bo = host1x_bo_get(g->bo);
-		if (!g->bo)
-			goto unpin;
 
 		phys_addr = host1x_bo_pin(g->bo, &sgt);
 		if (!phys_addr)
@@ -573,7 +565,6 @@ void host1x_job_unpin(struct host1x_job *job)
 	for (i = 0; i < job->num_unpins; i++) {
 		struct host1x_job_unpin_data *unpin = &job->unpins[i];
 		host1x_bo_unpin(unpin->bo, unpin->sgt);
-		host1x_bo_put(unpin->bo);
 	}
 	job->num_unpins = 0;
 
@@ -583,6 +574,26 @@ void host1x_job_unpin(struct host1x_job *job)
 				      job->gather_copy);
 }
 EXPORT_SYMBOL(host1x_job_unpin);
+
+void host1x_job_bo_put(struct host1x_job *job)
+{
+	int i;
+
+	for (i = 0; i < job->num_gathers; i++) {
+		struct host1x_job_gather *cur_gather = &job->gathers[i];
+		if (cur_gather->bo)
+			host1x_bo_put(cur_gather->bo);
+	}
+
+	for (i = 0; i < job->num_relocs; i++) {
+		struct host1x_reloc *cur_reloc = &job->relocarray[i];
+		if (cur_reloc->cmdbuf.bo)
+			host1x_bo_put(cur_reloc->cmdbuf.bo);
+		if (cur_reloc->target.bo)
+			host1x_bo_put(cur_reloc->target.bo);
+	}
+}
+EXPORT_SYMBOL(host1x_job_bo_put);
 
 /*
  * Debug routine used to dump job entries

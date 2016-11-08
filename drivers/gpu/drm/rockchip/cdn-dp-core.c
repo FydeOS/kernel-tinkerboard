@@ -677,6 +677,18 @@ static void cdn_dp_encoder_disable(struct drm_encoder *encoder)
 	}
 	mutex_unlock(&dp->lock);
 	hdmi_event_disconnect(dp->dev);
+
+	/*
+	 * In the following 2 cases, we need to run the event_work to re-enable
+	 * the DP:
+	 * 1. If there is not just one port device is connected, and remove one
+	 *    device from a port, the DP will be disabled here, at this case,
+	 *    run the event_work to re-open DP for the other port.
+	 * 2. If re-training or re-config failed, the DP will be disabled here.
+	 *    run the event_work to re-connect it.
+	 */
+	if (!dp->connected && cdn_dp_connected_port(dp))
+		schedule_work(&dp->event_work);
 }
 
 static int cdn_dp_encoder_atomic_check(struct drm_encoder *encoder,

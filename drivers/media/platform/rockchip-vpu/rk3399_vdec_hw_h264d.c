@@ -270,9 +270,9 @@ static void rk3399_vdec_h264d_assemble_hw_pps(struct rockchip_vpu_ctx *ctx)
 		  TRANSFORM_8X8_MODE_FLAG);
 	WRITE_PPS(pps->second_chroma_qp_index_offset,
 		  SECOND_CHROMA_QP_INDEX_OFFSET);
-	WRITE_PPS((pps->flags &
-		   V4L2_H264_PPS_FLAG_PIC_SCALING_MATRIX_PRESENT) >> 7,
-		  SCALING_LIST_ENABLE_FLAG);
+
+	/* always use the matrix sent from userspace */
+	WRITE_PPS(1, SCALING_LIST_ENABLE_FLAG);
 
 	scaling_distance =
 		offsetof(struct rk3399_vdec_h264d_priv_tbl, scaling_list);

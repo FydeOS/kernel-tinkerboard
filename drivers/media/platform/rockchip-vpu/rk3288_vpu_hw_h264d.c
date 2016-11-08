@@ -343,8 +343,9 @@ static void rk3288_vpu_h264d_set_params(struct rockchip_vpu_ctx *ctx)
 	reg = VDPU_REG_DEC_CTRL2_CH_QP_OFFSET(pps->chroma_qp_index_offset)
 		| VDPU_REG_DEC_CTRL2_CH_QP_OFFSET2(
 			pps->second_chroma_qp_index_offset);
-	if (pps->flags & V4L2_H264_PPS_FLAG_PIC_SCALING_MATRIX_PRESENT)
-		reg |= VDPU_REG_DEC_CTRL2_TYPE1_QUANT_E;
+	/* always use the matrix sent from userspace */
+	reg |= VDPU_REG_DEC_CTRL2_TYPE1_QUANT_E;
+
 	if (slice->flags &  V4L2_SLICE_FLAG_FIELD_PIC)
 		reg |= VDPU_REG_DEC_CTRL2_FIELDPIC_FLAG_E;
 	vdpu_write_relaxed(vpu, reg, VDPU_REG_DEC_CTRL2);

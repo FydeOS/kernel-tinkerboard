@@ -501,7 +501,7 @@ static int cdn_dp_disable(struct cdn_dp_device *dp)
 
 static int cdn_dp_enable(struct cdn_dp_device *dp)
 {
-	int ret;
+	int ret, i, lanes;
 	struct cdn_dp_port *port;
 	u8 sink_count;
 
@@ -512,37 +512,41 @@ static int cdn_dp_enable(struct cdn_dp_device *dp)
 		return -ENODEV;
 	}
 
-	if (!dp->active) {
-		ret = cdn_dp_clk_enable(dp);
-		if (ret)
-			return ret;
+	if (dp->active)
+		return 0;
 
-		ret = cdn_dp_firmware_init(dp);
-		if (ret) {
-			DRM_DEV_ERROR(dp->dev, "firmware init failed: %d", ret);
-			goto err_clk_disable;
-		}
+	ret = cdn_dp_clk_enable(dp);
+	if (ret)
+		return ret;
 
-		ret = cdn_dp_enable_phy(dp, port);
-		if (ret)
-			goto err_clk_disable;
-
-		dp->active = true;
-		dp->lanes = port->lanes;
+	ret = cdn_dp_firmware_init(dp);
+	if (ret) {
+		DRM_DEV_ERROR(dp->dev, "firmware init failed: %d", ret);
+		goto err_clk_disable;
 	}
 
-	ret = cdn_dp_get_sink_capability(dp, port, &sink_count);
-	/* If there's a failure or nothing downstream, disable and return */
-	if (ret || (!ret && !sink_count))
-		goto err_phy_disable;
+	/* only enable the port that connected with downstream device */
+	for (i = port->id; i < dp->ports; i++) {
+		port = dp->port[i];
+		lanes = cdn_dp_get_port_lanes(port);
+		if (lanes) {
+			ret = cdn_dp_enable_phy(dp, port);
+			if (ret)
+				continue;
 
-	return 0;
+			ret = cdn_dp_get_sink_capability(dp, port, &sink_count);
+			if (ret || (!ret && !sink_count)) {
+				cdn_dp_disable_phy(dp, port);
+			} else {
+				dp->active = true;
+				dp->lanes = port->lanes;
+				return 0;
+			}
+		}
+	}
 
-err_phy_disable:
-	cdn_dp_disable_phy(dp, port);
 err_clk_disable:
 	cdn_dp_clk_disable(dp);
-	dp->active = false;
 	return ret;
 }
 

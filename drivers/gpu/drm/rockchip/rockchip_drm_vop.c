@@ -149,6 +149,7 @@ enum vop_id vop_get_crtc_vop_id(struct drm_crtc *crtc)
 
 	return vop->data->id;
 }
+EXPORT_SYMBOL_GPL(vop_get_crtc_vop_id);
 
 static inline void vop_writel(struct vop *vop, uint32_t offset, uint32_t v)
 {

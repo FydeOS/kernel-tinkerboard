@@ -346,7 +346,7 @@ int cros_ec_sensors_read_lpc(struct iio_dev *indio_dev,
 	struct cros_ec_sensors_core_state *st = iio_priv(indio_dev);
 	struct cros_ec_device *ec = st->ec;
 	u8 samp_id = 0xff, status = 0;
-	int attempts = 0;
+	int attempts = 0, ret;
 
 	/*
 	 * Continually read all data from EC until the status byte after
@@ -361,15 +361,15 @@ int cros_ec_sensors_read_lpc(struct iio_dev *indio_dev,
 			return -EIO;
 
 		/* Read status byte until EC is not busy. */
-		status = read_ec_until_not_busy(st);
-		if (status < 0)
-			return status;
+		ret = read_ec_until_not_busy(st);
+		if (ret < 0)
+			return ret;
 
 		/*
 		 * Store the current sample id so that we can compare to the
 		 * sample id after reading the data.
 		 */
-		samp_id = status & EC_MEMMAP_ACC_STATUS_SAMPLE_ID_MASK;
+		samp_id = ret & EC_MEMMAP_ACC_STATUS_SAMPLE_ID_MASK;
 
 		/* Read all EC data, format it, and store it into data. */
 		read_ec_sensors_data_unsafe(indio_dev, scan_mask, data);

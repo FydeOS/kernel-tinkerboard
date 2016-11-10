@@ -16,6 +16,8 @@
 #include <linux/gpio/consumer.h>
 #include <linux/idr.h>
 #include <linux/interrupt.h>
+#include <linux/module.h>
+#include <linux/of.h>
 #include <linux/poll.h>
 #include <linux/regulator/consumer.h>
 #include <linux/spi/spi.h>

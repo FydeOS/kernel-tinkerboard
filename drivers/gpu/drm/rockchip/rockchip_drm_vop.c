@@ -997,14 +997,22 @@ static void vop_crtc_cancel_pending_vblank(struct drm_crtc *crtc,
 
 	spin_lock_irqsave(&drm->event_lock, flags);
 	e = vop->event;
-	if (e && e->base.file_priv == file_priv) {
-		vop->event = NULL;
-		drm_crtc_vblank_put(crtc);
-
-		kfree(&e->base);
-		file_priv->event_space += sizeof(e->event);
+	if (!e) {
+		spin_unlock_irqrestore(&drm->event_lock, flags);
+		return;
 	}
+
+	if (e->base.file_priv != file_priv) {
+		spin_unlock_irqrestore(&drm->event_lock, flags);
+		return;
+	}
+
+	vop->event = NULL;
+	drm_crtc_vblank_put(crtc);
+
 	spin_unlock_irqrestore(&drm->event_lock, flags);
+
+	drm_event_cancel_free(drm, &e->base);
 }
 
 static const struct rockchip_crtc_funcs private_crtc_funcs = {

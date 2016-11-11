@@ -285,6 +285,7 @@ static int mwifiex_sdio_suspend(struct device *dev)
 		mwifiex_dbg(adapter, ERROR,
 			    "cmd: failed to suspend\n");
 		adapter->hs_enabling = false;
+		mwifiex_disable_wake(card->plt_wake_cfg);
 		return -EFAULT;
 	}
 

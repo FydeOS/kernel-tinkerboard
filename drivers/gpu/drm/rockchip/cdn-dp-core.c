@@ -115,8 +115,10 @@ static int cdn_dp_clk_enable(struct cdn_dp_device *dp)
 		goto err_pclk;
 	}
 
+	reset_control_assert(dp->core_rst);
 	reset_control_assert(dp->dptx_rst);
 	reset_control_assert(dp->apb_rst);
+	reset_control_deassert(dp->core_rst);
 	reset_control_deassert(dp->dptx_rst);
 	reset_control_deassert(dp->apb_rst);
 
@@ -768,6 +770,12 @@ static int cdn_dp_parse_dt(struct cdn_dp_device *dp)
 	if (IS_ERR(dp->dptx_rst)) {
 		DRM_DEV_ERROR(dev, "no uphy reset control found\n");
 		return PTR_ERR(dp->dptx_rst);
+	}
+
+	dp->core_rst = devm_reset_control_get(dev, "core");
+	if (IS_ERR(dp->core_rst)) {
+		DRM_DEV_ERROR(dev, "no core reset control found\n");
+		return PTR_ERR(dp->core_rst);
 	}
 
 	dp->apb_rst = devm_reset_control_get(dev, "apb");

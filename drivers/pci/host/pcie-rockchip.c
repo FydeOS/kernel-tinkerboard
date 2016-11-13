@@ -140,6 +140,8 @@
 #define PCIE_RC_CONFIG_VENDOR		(PCIE_RC_CONFIG_BASE + 0x00)
 #define PCIE_RC_CONFIG_RID_CCR		(PCIE_RC_CONFIG_BASE + 0x08)
 #define   PCIE_RC_CONFIG_SCC_SHIFT		16
+#define PCIE_RC_CONFIG_LINK_CAP                (PCIE_RC_CONFIG_BASE + 0xcc)
+#define   PCIE_RC_CONFIG_LINK_CAP_L0S          BIT(10)
 #define PCIE_RC_CONFIG_LCS		(PCIE_RC_CONFIG_BASE + 0xd0)
 #define   PCIE_RC_CONFIG_LCS_RETRAIN_LINK	BIT(5)
 #define   PCIE_RC_CONFIG_LCS_LBMIE		BIT(10)
@@ -596,6 +598,13 @@ static int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
 	status = rockchip_pcie_read(rockchip, PCIE_RC_CONFIG_THP_CAP);
 	status &= ~PCIE_RC_CONFIG_THP_CAP_NEXT_MASK;
 	rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_THP_CAP);
+
+	/* Clear L0s from RC's link cap */
+	if (of_property_read_bool(dev->of_node, "quirk,apsm-no-l0s")) {
+		status = rockchip_pcie_read(rockchip, PCIE_RC_CONFIG_LINK_CAP);
+		status &= ~PCIE_RC_CONFIG_LINK_CAP_L0S;
+		rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_LINK_CAP);
+	}
 
 	rockchip_pcie_write(rockchip, 0x0, PCIE_RC_BAR_CONF);
 

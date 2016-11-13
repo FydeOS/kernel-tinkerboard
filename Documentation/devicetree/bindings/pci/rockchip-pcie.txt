@@ -44,6 +44,8 @@ Optional Property:
 - num-lanes: number of lanes to use
 - rockchip,disable-gen2: present if PCIe generation 2.x (i.e., 5 GT/s link
 	speeds) is not supported.
+- quirk,aspm-no-l0s: RC won't support ASPM L0s. This property is needed if
+	using 24MHz OSC for RC's PHY.
 - vpcie3v3-supply: The phandle to the 3.3v regulator to use for PCIe.
 - vpcie1v8-supply: The phandle to the 1.8v regulator to use for PCIe.
 - vpcie0v9-supply: The phandle to the 0.9v regulator to use for PCIe.

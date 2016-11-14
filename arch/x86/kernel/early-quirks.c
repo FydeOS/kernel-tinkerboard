@@ -331,11 +331,12 @@ static u32 __init i85x_stolen_base(int num, int slot, int func, size_t stolen_si
 
 static u32 __init i865_stolen_base(int num, int slot, int func, size_t stolen_size)
 {
-	u16 toud = 0;
-
-	toud = read_pci_config_16(0, 0, 0, I865_TOUD);
-
-	return (phys_addr_t)(toud << 16) + i845_tseg_size();
+	/*
+	 * FIXME is the graphics stolen memory region
+	 * always at TOUD? Ie. is it always the last
+	 * one to be allocated by the BIOS?
+	 */
+	return read_pci_config_16(0, 0, 0, I865_TOUD) << 16;
 }
 
 static size_t __init i830_stolen_size(int num, int slot, int func)

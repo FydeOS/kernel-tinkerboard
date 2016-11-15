@@ -280,3 +280,5 @@ source "drivers/gpu/drm/imx/Kconfig"
 source "drivers/gpu/drm/vc4/Kconfig"
 
 source "drivers/gpu/drm/mediatek/Kconfig"
+
+source "drivers/gpu/drm/img-rogue/Kconfig"

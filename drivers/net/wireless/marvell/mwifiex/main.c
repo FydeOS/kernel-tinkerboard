@@ -1556,7 +1556,8 @@ EXPORT_SYMBOL_GPL(mwifiex_do_flr);
  */
 int
 mwifiex_add_card(void *card, struct semaphore *sem,
-		 struct mwifiex_if_ops *if_ops, u8 iface_type)
+		 struct mwifiex_if_ops *if_ops, u8 iface_type,
+		 struct device *dev)
 {
 	struct mwifiex_adapter *adapter;
 
@@ -1568,6 +1569,7 @@ mwifiex_add_card(void *card, struct semaphore *sem,
 		goto err_init_sw;
 	}
 
+	adapter->dev = dev;
 	adapter->iface_type = iface_type;
 	adapter->card_sem = sem;
 

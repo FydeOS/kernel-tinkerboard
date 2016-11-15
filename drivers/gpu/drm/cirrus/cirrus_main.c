@@ -100,7 +100,11 @@ static int cirrus_vram_init(struct cirrus_device *cdev)
 {
 	/* BAR 0 is VRAM */
 	cdev->mc.vram_base = pci_resource_start(cdev->dev->pdev, 0);
-	cdev->mc.vram_size = pci_resource_len(cdev->dev->pdev, 0);
+	/*
+	 * While we can use the entire PCI bar for VRAM, qemu always expects to
+	 * find the cursor data at the 4M - 16K point.
+	 */
+	cdev->mc.vram_size = 4 * 1024 * 1024;
 	/* The last 16K of VRAM is for cursor */
 	cdev->cursor_ram_size = 16 * 1024;
 

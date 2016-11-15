@@ -99,7 +99,8 @@ struct ps8640 {
 	struct mipi_dsi_device dsi;
 	struct i2c_client *page[MAX_DEVS];
 	struct i2c_client *ddc_i2c;
-	struct regulator_bulk_data supplies[2];
+	struct regulator *v33;
+	struct regulator *v12;
 	struct drm_panel *panel;
 	struct gpio_desc *gpio_rst_n;
 	struct gpio_desc *gpio_slp_n;
@@ -230,15 +231,19 @@ static void ps8640_pre_enable(struct drm_bridge *bridge)
 		return;
 	}
 
-	err = regulator_bulk_enable(ARRAY_SIZE(ps_bridge->supplies),
-				    ps_bridge->supplies);
-	if (err < 0) {
-		DRM_ERROR("cannot enable regulators %d\n", err);
+	err = regulator_enable(ps_bridge->v12);
+	if (err) {
+		DRM_ERROR("failed to enable power 1.2v %d", err);
 		goto err_panel_unprepare;
 	}
 
+	err = regulator_enable(ps_bridge->v33);
+	if (err) {
+		DRM_ERROR("failed to enable power 3.3v %d", err);
+		goto err_pwr_v12_disable;
+	}
+
 	gpiod_set_value(ps_bridge->gpio_slp_n, 1);
-	gpiod_set_value(ps_bridge->gpio_rst_n, 0);
 	usleep_range(2000, 2500);
 	gpiod_set_value(ps_bridge->gpio_rst_n, 1);
 
@@ -253,7 +258,7 @@ static void ps8640_pre_enable(struct drm_bridge *bridge)
 		err = ps8640_read(client, PAGE2_GPIO_H, &set_vdo_done, 1);
 		if (err < 0) {
 			DRM_ERROR("failed read PAGE2_GPIO_H: %d\n", err);
-			goto err_regulators_disable;
+			goto err_pwr_v33_disable;
 		}
 		if ((set_vdo_done & PS_GPIO9) == PS_GPIO9)
 			break;
@@ -289,9 +294,12 @@ static void ps8640_pre_enable(struct drm_bridge *bridge)
 
 	return;
 
-err_regulators_disable:
-	regulator_bulk_disable(ARRAY_SIZE(ps_bridge->supplies),
-			       ps_bridge->supplies);
+err_pwr_v33_disable:
+	gpiod_set_value(ps_bridge->gpio_rst_n, 0);
+	gpiod_set_value(ps_bridge->gpio_slp_n, 0);
+	regulator_disable(ps_bridge->v33);
+err_pwr_v12_disable:
+	regulator_disable(ps_bridge->v12);
 err_panel_unprepare:
 	drm_panel_unprepare(ps_bridge->panel);
 }
@@ -335,10 +343,14 @@ static void ps8640_post_disable(struct drm_bridge *bridge)
 
 	gpiod_set_value(ps_bridge->gpio_rst_n, 0);
 	gpiod_set_value(ps_bridge->gpio_slp_n, 0);
-	err = regulator_bulk_disable(ARRAY_SIZE(ps_bridge->supplies),
-				     ps_bridge->supplies);
-	if (err < 0)
-		DRM_ERROR("cannot disable regulators %d\n", err);
+
+	err = regulator_disable(ps_bridge->v33);
+	if (err)
+		DRM_ERROR("failed to disable power 3.3v: %d\n", err);
+
+	err = regulator_disable(ps_bridge->v12);
+	if (err)
+		DRM_ERROR("failed to disable power 1.2v: %d\n", err);
 
 	err = drm_panel_unprepare(ps_bridge->panel);
 	if (err)
@@ -945,10 +957,14 @@ static int ps8640_probe(struct i2c_client *client,
 	}
 
 	mutex_init(&ps_bridge->fw_mutex);
-	ps_bridge->supplies[0].supply = "vdd33";
-	ps_bridge->supplies[1].supply = "vdd12";
-	ret = devm_regulator_bulk_get(dev, ARRAY_SIZE(ps_bridge->supplies),
-				      ps_bridge->supplies);
+	ps_bridge->v12 = devm_regulator_get(dev, "vdd12");
+	if (IS_ERR(ps_bridge->v12))
+		return PTR_ERR(ps_bridge->v12);
+
+	ps_bridge->v33 = devm_regulator_get(dev, "vdd33");
+	if (IS_ERR(ps_bridge->v33))
+		return PTR_ERR(ps_bridge->v33);
+
 	if (ret) {
 		dev_info(dev, "failed to get regulators: %d\n", ret);
 		return ret;

@@ -189,6 +189,33 @@ struct drm_mode_get_plane {
 	__u64 format_type_ptr;
 };
 
+struct drm_format_modifier {
+	/* Bitmask of formats in get_plane format list this info
+	 * applies to. */
+	uint64_t formats;
+
+	/* This modifier can be used with the format for this plane. */
+	uint64_t modifier;
+};
+
+struct drm_mode_get_plane2 {
+	__u32 plane_id;
+
+	__u32 crtc_id;
+	__u32 fb_id;
+
+	__u32 possible_crtcs;
+	__u32 gamma_size;
+
+	__u32 count_format_types;
+	__u64 format_type_ptr;
+
+	/* New in v2 */
+	__u32 count_format_modifiers;
+	__u32 flags;
+	__u64 format_modifier_ptr;
+};
+
 struct drm_mode_get_plane_res {
 	__u64 plane_id_ptr;
 	__u32 count_planes;

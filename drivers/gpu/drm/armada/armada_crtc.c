@@ -1216,6 +1216,7 @@ static int armada_drm_crtc_create(struct drm_device *drm, struct device *dev,
 				       &armada_primary_plane_funcs,
 				       armada_primary_formats,
 				       ARRAY_SIZE(armada_primary_formats),
+				       NULL, 0,
 				       DRM_PLANE_TYPE_PRIMARY, NULL);
 	if (ret) {
 		kfree(primary);

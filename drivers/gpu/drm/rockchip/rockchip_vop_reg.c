@@ -46,6 +46,28 @@ static const uint32_t formats_win_full[] = {
 	DRM_FORMAT_NV24,
 };
 
+static const struct drm_format_modifier format_modifiers_win_full[] = {
+	{
+		/* All 11 formats support linear. */
+		.formats = (1 << ARRAY_SIZE(formats_win_full)) - 1,
+		.modifier = DRM_FORMAT_MOD_NONE,
+	},
+};
+
+static const struct drm_format_modifier format_modifiers_win_full_afbc[] = {
+	{
+		/* We support AFBC for the first four formats. */
+		.formats = 0x0f,
+		.modifier = DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC
+	},
+	{
+		/* All 11 formats support linear. */
+		.formats = (1 << ARRAY_SIZE(formats_win_full)) - 1,
+		.modifier = DRM_FORMAT_MOD_NONE,
+	},
+};
+
+
 static const uint32_t formats_win_lite[] = {
 	DRM_FORMAT_XRGB8888,
 	DRM_FORMAT_ARGB8888,
@@ -56,6 +78,15 @@ static const uint32_t formats_win_lite[] = {
 	DRM_FORMAT_RGB565,
 	DRM_FORMAT_BGR565,
 };
+
+static const struct drm_format_modifier format_modifiers_win_lite[] = {
+	{
+		/* All 8 formats support linear. */
+		.formats = (1 << ARRAY_SIZE(formats_win_lite)) - 1,
+		.modifier = DRM_FORMAT_MOD_NONE,
+	},
+};
+
 
 static const struct vop_scl_regs rk3066_win_scl = {
 	.scale_yrgb_x = VOP_REG(RK3036_WIN0_SCL_FACTOR_YRGB, 0xffff, 0x0),
@@ -68,6 +99,8 @@ static const struct vop_win_phy rk3036_win0_data = {
 	.scl = &rk3066_win_scl,
 	.data_formats = formats_win_full,
 	.nformats = ARRAY_SIZE(formats_win_full),
+	.format_modifiers = format_modifiers_win_full,
+	.nformat_modifiers = ARRAY_SIZE(format_modifiers_win_full),
 	.enable = VOP_REG(RK3036_SYS_CTRL, 0x1, 0),
 	.format = VOP_REG(RK3036_SYS_CTRL, 0x7, 3),
 	.rb_swap = VOP_REG(RK3036_SYS_CTRL, 0x1, 15),
@@ -82,6 +115,8 @@ static const struct vop_win_phy rk3036_win0_data = {
 static const struct vop_win_phy rk3036_win1_data = {
 	.data_formats = formats_win_lite,
 	.nformats = ARRAY_SIZE(formats_win_lite),
+	.format_modifiers = format_modifiers_win_lite,
+	.nformat_modifiers = ARRAY_SIZE(format_modifiers_win_lite),
 	.enable = VOP_REG(RK3036_SYS_CTRL, 0x1, 1),
 	.format = VOP_REG(RK3036_SYS_CTRL, 0x7, 6),
 	.rb_swap = VOP_REG(RK3036_SYS_CTRL, 0x1, 19),
@@ -172,10 +207,13 @@ static const struct vop_scl_regs rk3288_win_full_scl = {
 	.scale_cbcr_y = VOP_REG(RK3288_WIN0_SCL_FACTOR_CBR, 0xffff, 16),
 };
 
+
 static const struct vop_win_phy rk3288_win01_data = {
 	.scl = &rk3288_win_full_scl,
 	.data_formats = formats_win_full,
 	.nformats = ARRAY_SIZE(formats_win_full),
+	.format_modifiers = format_modifiers_win_full,
+	.nformat_modifiers = ARRAY_SIZE(format_modifiers_win_full),
 	.enable = VOP_REG(RK3288_WIN0_CTRL0, 0x1, 0),
 	.format = VOP_REG(RK3288_WIN0_CTRL0, 0x7, 1),
 	.rb_swap = VOP_REG(RK3288_WIN0_CTRL0, 0x1, 12),
@@ -193,6 +231,8 @@ static const struct vop_win_phy rk3288_win01_data = {
 static const struct vop_win_phy rk3288_win23_data = {
 	.data_formats = formats_win_lite,
 	.nformats = ARRAY_SIZE(formats_win_lite),
+	.format_modifiers = format_modifiers_win_lite,
+	.nformat_modifiers = ARRAY_SIZE(format_modifiers_win_lite),
 	.enable = VOP_REG(RK3288_WIN2_CTRL0, 0x1, 0),
 	.format = VOP_REG(RK3288_WIN2_CTRL0, 0x7, 1),
 	.rb_swap = VOP_REG(RK3288_WIN2_CTRL0, 0x1, 12),
@@ -353,6 +393,42 @@ static const struct vop_reg_data rk3399_init_reg_table[] = {
 	{RK3399_WIN3_CTRL0, 0x00000010},
 };
 
+static const struct vop_win_phy rk3399_win01_data = {
+	.scl = &rk3288_win_full_scl,
+	.data_formats = formats_win_full,
+	.nformats = ARRAY_SIZE(formats_win_full),
+	.format_modifiers = format_modifiers_win_full_afbc,
+	.nformat_modifiers = ARRAY_SIZE(format_modifiers_win_full_afbc),
+	.enable = VOP_REG(RK3288_WIN0_CTRL0, 0x1, 0),
+	.format = VOP_REG(RK3288_WIN0_CTRL0, 0x7, 1),
+	.rb_swap = VOP_REG(RK3288_WIN0_CTRL0, 0x1, 12),
+	.act_info = VOP_REG(RK3288_WIN0_ACT_INFO, 0x1fff1fff, 0),
+	.dsp_info = VOP_REG(RK3288_WIN0_DSP_INFO, 0x0fff0fff, 0),
+	.dsp_st = VOP_REG(RK3288_WIN0_DSP_ST, 0x1fff1fff, 0),
+	.yrgb_mst = VOP_REG(RK3288_WIN0_YRGB_MST, 0xffffffff, 0),
+	.uv_mst = VOP_REG(RK3288_WIN0_CBR_MST, 0xffffffff, 0),
+	.yrgb_vir = VOP_REG(RK3288_WIN0_VIR, 0x3fff, 0),
+	.uv_vir = VOP_REG(RK3288_WIN0_VIR, 0x3fff, 16),
+	.src_alpha_ctl = VOP_REG(RK3288_WIN0_SRC_ALPHA_CTRL, 0xff, 0),
+	.dst_alpha_ctl = VOP_REG(RK3288_WIN0_DST_ALPHA_CTRL, 0xff, 0),
+};
+
+/*
+ * rk3399 vop big windows register layout is same as rk3288, but we
+ * have a separate rk3399 win data array here so that we can advertise
+ * AFBC on the primary plane.
+ */
+static const struct vop_win_data rk3399_vop_win_data[] = {
+	{ .base = 0x00, .phy = &rk3399_win01_data,
+	  .type = DRM_PLANE_TYPE_PRIMARY },
+	{ .base = 0x40, .phy = &rk3288_win01_data,
+	  .type = DRM_PLANE_TYPE_OVERLAY },
+	{ .base = 0x00, .phy = &rk3288_win23_data,
+	  .type = DRM_PLANE_TYPE_OVERLAY },
+	{ .base = 0x50, .phy = &rk3288_win23_data,
+	  .type = DRM_PLANE_TYPE_CURSOR },
+};
+
 static const struct vop_data rk3399_vop_big = {
 	.id = RK3399_VOP_BIG,
 	.init_table = rk3399_init_reg_table,
@@ -360,11 +436,8 @@ static const struct vop_data rk3399_vop_big = {
 	.intr = &rk3399_vop_intr,
 	.ctrl = &rk3399_ctrl_data,
 	.afbdc = &rk3399_vop_afbdc,
-	/*
-	 * rk3399 vop big windows register layout is same as rk3288.
-	 */
-	.win = rk3288_vop_win_data,
-	.win_size = ARRAY_SIZE(rk3288_vop_win_data),
+	.win = rk3399_vop_win_data,
+	.win_size = ARRAY_SIZE(rk3399_vop_win_data),
 };
 
 static const struct vop_win_data rk3399_vop_lit_win_data[] = {

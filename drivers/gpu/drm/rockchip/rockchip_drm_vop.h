@@ -128,6 +128,8 @@ struct vop_win_phy {
 	const struct vop_scl_regs *scl;
 	const uint32_t *data_formats;
 	uint32_t nformats;
+	const struct drm_format_modifier *format_modifiers;
+	uint32_t nformat_modifiers;
 
 	struct vop_reg enable;
 	struct vop_reg format;

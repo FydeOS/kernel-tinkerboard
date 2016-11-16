@@ -111,6 +111,25 @@ pp1800_gps: &pp1800_s0 {
 	};
 };
 
+ap_i2c_bl: &i2c0 {
+	status = "okay";
+
+	clock-frequency = <400000>;
+
+	/* These are relatively safe rise/fall times; TODO: measure */
+	i2c-scl-falling-time-ns = <50>;
+	i2c-scl-rising-time-ns = <300>;
+
+	backlight: backlight@30 {
+		compatible = "arc,arc2c0608";
+		reg = <0x30>;
+		default-brightness = <0x828>; /* arbitrary, ~51% */
+		enable-gpios = <&gpio1 17 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&bl_en>;
+	};
+};
+
 ap_i2c_cam: &i2c2 {
 	status = "okay";
 

@@ -1,5 +1,5 @@
 /*
- * Google Gru-Gru Rev 1 board device tree source
+ * Google Gru-Gru Rev 2+ board device tree source
  *
  * Copyright 2016 Google, Inc
  *
@@ -47,42 +47,12 @@
 
 / {
 	model = "Google Gru";
-	compatible = "google,gru-rev1", "google,gru", "rockchip,rk3399";
-
-	backlight: backlight {
-		compatible = "pwm-backlight";
-		pwms = <&cros_ec_pwm 0>;
-		brightness-levels-scale = <0x10000>;
-		default-brightness-level = <0x828f>; /* arbitrary, ~51% */
-		enable-gpios = <&gpio1 17 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&bl_en>;
-		pwm-delay-us = <10000>;
-	};
-};
-
-&ap_i2c_bl {
-	/delete-node/ backlight@30;
-};
-
-/* Adjust DVFS rails back to wider range */
-
-&ppvar_bigcpu {
-	regulator-min-microvolt = <800000>;
-	regulator-max-microvolt = <1500000>;
-};
-
-&ppvar_litcpu {
-	regulator-min-microvolt = <800000>;
-	regulator-max-microvolt = <1500000>;
-};
-
-&ppvar_gpu {
-	regulator-min-microvolt = <800000>;
-	regulator-max-microvolt = <1500000>;
-};
-
-&ppvar_centerlogic {
-	regulator-min-microvolt = <800000>;
-	regulator-max-microvolt = <1500000>;
+	compatible = "google,gru-rev15", "google,gru-rev14",
+		     "google,gru-rev13", "google,gru-rev12",
+		     "google,gru-rev11", "google,gru-rev10",
+		     "google,gru-rev9", "google,gru-rev8",
+		     "google,gru-rev7", "google,gru-rev6",
+		     "google,gru-rev5", "google,gru-rev4",
+		     "google,gru-rev3", "google,gru-rev2",
+		     "google,gru", "rockchip,rk3399";
 };

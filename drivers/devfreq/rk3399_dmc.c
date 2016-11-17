@@ -29,6 +29,8 @@
 #include <soc/rockchip/rockchip_sip.h>
 #include <soc/rockchip/rk3399_dmc.h>
 
+#define NS_TO_CYCLE(NS, MHz)	((NS * MHz) / NSEC_PER_USEC)
+
 static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 				 u32 flags)
 {
@@ -38,6 +40,9 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 	struct arm_smccc_res res;
 	struct dev_pm_opp *opp;
 	int dram_flag, err, odt_pd_arg0, odt_pd_arg1;
+	unsigned int pd_idle_cycle, standby_idle_cycle, sr_idle_cycle;
+	unsigned int sr_mc_gate_idle_cycle, srpd_lite_idle_cycle;
+	unsigned int ddrcon_mhz;
 
 	rcu_read_lock();
 	opp = devfreq_recommended_opp(dev, freq, flags);
@@ -48,10 +53,8 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 
 	target_rate = dev_pm_opp_get_freq(opp);
 	target_volt = dev_pm_opp_get_voltage(opp);
-
 	dmcfreq->rate = dev_pm_opp_get_freq(dmcfreq->curr_opp);
 	dmcfreq->volt = dev_pm_opp_get_voltage(dmcfreq->curr_opp);
-
 	rcu_read_unlock();
 
 	if (dmcfreq->rate == target_rate)
@@ -63,8 +66,23 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 	if (target_rate >= dmcfreq->odt_dis_freq)
 		dram_flag = 1;
 
-	odt_pd_arg0 = dmcfreq->odt_pd_arg0;
-	odt_pd_arg1 = dmcfreq->odt_pd_arg1;
+	/*
+	 * idle parameter base on the ddr controller clock which
+	 * is half of the ddr frequency.
+	 * pd_idle, standby_idle base on the controller clock cycle.
+	 * sr_idle_cycle, sr_mc_gate_idle_cycle, srpd_lite_idle_cycle,
+	 * base on the 1024 controller clock cycle
+	 */
+	ddrcon_mhz = target_rate / USEC_PER_SEC / 2;
+	pd_idle_cycle = NS_TO_CYCLE(dmcfreq->pd_idle, ddrcon_mhz);
+	standby_idle_cycle = NS_TO_CYCLE(dmcfreq->standby_idle, ddrcon_mhz);
+	sr_idle_cycle = DIV_ROUND_UP(NS_TO_CYCLE(dmcfreq->sr_idle, ddrcon_mhz),
+				     1024);
+	sr_mc_gate_idle_cycle = DIV_ROUND_UP(
+			NS_TO_CYCLE(dmcfreq->sr_mc_gate_idle, ddrcon_mhz),
+				    1024);
+	srpd_lite_idle_cycle = DIV_ROUND_UP(NS_TO_CYCLE(dmcfreq->srpd_lite_idle,
+							ddrcon_mhz), 1024);
 
 	/*
 	 * odt_pd_arg0:
@@ -72,6 +90,17 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 	 * bit8-15: sr_mc_gate_idle
 	 * bit16-31: standby_idle
 	 */
+	odt_pd_arg0 = (sr_idle_cycle & 0xff) |
+		      ((sr_mc_gate_idle_cycle & 0xff) << 8) |
+		      ((standby_idle_cycle & 0xffff) << 16);
+
+	/* odt_pd_arg1:
+	 * bit0-11: pd_idle
+	 * bit16-27: srpd_lite_idle
+	 */
+	odt_pd_arg1 = (pd_idle_cycle & 0xfff) |
+		      ((srpd_lite_idle_cycle & 0xfff) << 16);
+
 	if (target_rate >= dmcfreq->sr_idle_dis_freq)
 		odt_pd_arg0 = odt_pd_arg0 & 0xffffff00;
 	if (target_rate >= dmcfreq->sr_mc_gate_idle_dis_freq)
@@ -79,10 +108,6 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 	if (target_rate >= dmcfreq->standby_idle_dis_freq)
 		odt_pd_arg0 = odt_pd_arg0 & 0x0000ffff;
 
-	/* odt_pd_arg1:
-	 * bit0-11: pd_idle
-	 * bit16-27: srpd_lite_idle
-	 */
 	if (target_rate >= dmcfreq->pd_idle_dis_freq)
 		odt_pd_arg1 = odt_pd_arg1 & 0xfffff000;
 	if (target_rate >= dmcfreq->srpd_lite_idle_dis_freq)
@@ -254,13 +279,14 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	of_property_read_u32(np, "rockchip,pd_idle", &data->pd_idle);
-	of_property_read_u32(np, "rockchip,sr_idle", &data->sr_idle);
-	of_property_read_u32(np, "rockchip,sr_mc_gate_idle",
+	of_property_read_u32(np, "rockchip,pd_idle_ns", &data->pd_idle);
+	of_property_read_u32(np, "rockchip,sr_idle_ns", &data->sr_idle);
+	of_property_read_u32(np, "rockchip,sr_mc_gate_idle_ns",
 			     &data->sr_mc_gate_idle);
-	of_property_read_u32(np, "rockchip,srpd_lite_idle",
+	of_property_read_u32(np, "rockchip,srpd_lite_idle_ns",
 			     &data->srpd_lite_idle);
-	of_property_read_u32(np, "rockchip,standby_idle", &data->standby_idle);
+	of_property_read_u32(np, "rockchip,standby_idle_ns",
+			     &data->standby_idle);
 	of_property_read_u32(np, "rockchip,pd_idle_dis_freq",
 			     &data->pd_idle_dis_freq);
 	of_property_read_u32(np, "rockchip,sr_idle_dis_freq",
@@ -272,22 +298,6 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 	of_property_read_u32(np, "rockchip,standby_idle_dis_freq",
 			     &data->standby_idle_dis_freq);
 	of_property_read_u32(np, "rockchip,odt_dis_freq", &data->odt_dis_freq);
-
-	/*
-	 * odt_pd_arg0:
-	 * bit0-7: sr_idle value
-	 * bit8-15: sr_mc_gate_idle
-	 * bit16-31: standby_idle
-	 */
-	data->odt_pd_arg0 = (data->sr_idle & 0xff) |
-			    ((data->sr_mc_gate_idle & 0xff) << 8) |
-			    ((data->standby_idle & 0xffff) << 16);
-	/* odt_pd_arg1:
-	 * bit0-11: pd_idle
-	 * bit16-27: srpd_lite_idle
-	 */
-	data->odt_pd_arg1 = (data->pd_idle & 0xfff) |
-			   ((data->srpd_lite_idle & 0xfff) << 16);
 
 	/*
 	 * We add a devfreq driver to our parent since it has a device tree node

@@ -16,6 +16,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/idr.h>
 #include <linux/interrupt.h>
+#include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/poll.h>
@@ -24,14 +25,37 @@
 #include <linux/types.h>
 #include <asm/unaligned.h>
 
-#define FPC_NUM_SUPPLIES		2
+#define FPC_NUM_SUPPLIES	2
 
-#define FPC_CMD_DEEP_SLEEP		0x2c
+#define FPC_CMD_RESET		0xF8
+#define FPC_CMD_SLEEP		0x28
+#define FPC_CMD_CLEAR_IRQ	0x1C
 
-#define FPC_REG_IRQ			0x18
-#define FPC_REG_HWID			0xfc
+#define FPC_REG_IRQ		0x18
+#define FPC_REG_HWID		0xfc
+#define FPC_REG_STATUS		0x14
 
-#define FPC_FINGER_PRESENT		BIT(0)
+#define FPC_FINGER_PRESENT	BIT(0)
+#define FPC_RESET_MASK		0xFF
+#define FPC_IDLE_MASK		0x1E
+
+#define FPC_MAX_REG_SIZE	30
+#define FPC_MAX_SETUP_REGS	16
+#define FPC_MAX_POLL		100
+
+#ifndef VM_RESERVED
+#define  VM_RESERVED	(VM_DONTEXPAND | VM_DONTDUMP)
+#endif
+
+struct fpc_setup_xfer {
+	u8 xfer_buf[FPC_MAX_REG_SIZE];
+	int32_t xfer_size;
+};
+
+struct fpc_setup_data {
+	struct fpc_setup_xfer xfers[FPC_MAX_SETUP_REGS];
+	int32_t number_of_xfers;
+};
 
 struct fpc_data {
 	struct device dev;
@@ -54,6 +78,8 @@ struct fpc_data {
 
 	u8 *xfer_buf;
 	size_t xfer_size;
+
+	struct fpc_setup_data *setup_data;
 
 	u8 scratch_buf[4] ____cacheline_aligned;
 };
@@ -82,17 +108,145 @@ static int fpc1020_spi_writeread(struct spi_device *spi, u8 *buf, int len)
 	return spi_sync_transfer(spi, &transfer, 1);
 }
 
+static int fpc1020_read_status(struct fpc_data *fpc, u8 *status)
+{
+	int error;
+
+	fpc->scratch_buf[0] = FPC_REG_STATUS;
+	error = fpc1020_spi_writeread(fpc->spi, fpc->scratch_buf, 3);
+	if (error) {
+		dev_err(&fpc->spi->dev,
+			"%s: SPI failed: %d\n", __func__, error);
+		return error;
+	}
+
+	*status = fpc->scratch_buf[2];
+	return 0;
+}
+
+static int fpc1020_clear_irq(struct fpc_data *fpc)
+{
+	int error;
+
+	fpc->scratch_buf[0] = FPC_CMD_CLEAR_IRQ;
+	error = fpc1020_spi_writeread(fpc->spi, fpc->scratch_buf, 2);
+	if (error) {
+		dev_err(&fpc->spi->dev, "%s: SPI failed: %d\n",
+			__func__, error);
+		return error;
+	}
+
+	return 0;
+}
+
+static int fpc1020_wait_for_idle(struct fpc_data *fpc)
+{
+	int error;
+	int polls = 0;
+	u8 status = 0;
+
+	while (status != FPC_IDLE_MASK && polls < FPC_MAX_POLL) {
+		error = fpc1020_clear_irq(fpc);
+		if (error) {
+			dev_err(&fpc->spi->dev, "%s: Clear irq failed: %d\n",
+				__func__, error);
+			return error;
+		}
+
+		error = fpc1020_read_status(fpc, &status);
+		if (error) {
+			dev_err(&fpc->spi->dev, "%s: Read status failed: %d\n",
+				__func__, error);
+			return error;
+		}
+		polls++;
+	}
+
+	if (status != FPC_IDLE_MASK) {
+		dev_err(&fpc->spi->dev, "%s: Failed\n", __func__);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int fpc1020_reset(struct fpc_data *fpc)
+{
+	int error;
+
+	fpc->scratch_buf[0] = FPC_CMD_RESET;
+	error = fpc1020_spi_writeread(fpc->spi, fpc->scratch_buf, 1);
+	if (error) {
+		dev_err(&fpc->spi->dev,
+			"%s: Reset cmd failed: %d\n", __func__, error);
+		return error;
+	}
+
+	error = fpc1020_wait_for_idle(fpc);
+	if (error) {
+		dev_err(&fpc->spi->dev,
+			"%s: Wait for idle failed: %d\n", __func__, error);
+		return error;
+	}
+
+	return 0;
+}
+
+static int fpc1020_sensor_setup(struct fpc_data *fpc)
+{
+	int status;
+	u8 *access_bytes;
+	int i;
+
+	if (!fpc->setup_data) {
+		dev_err(&fpc->spi->dev, "%s: No setup data.\n", __func__);
+		return -1;
+	}
+
+	if (fpc->setup_data->number_of_xfers == 0) {
+		dev_err(&fpc->spi->dev, "%s: No transfers.\n", __func__);
+		return -1;
+	}
+
+	access_bytes = kmalloc(FPC_MAX_REG_SIZE, GFP_KERNEL);
+	if (!access_bytes)
+		return -ENOMEM;
+
+	for (i = 0; i < fpc->setup_data->number_of_xfers; i++) {
+		if (fpc->setup_data->xfers[i].xfer_size > FPC_MAX_REG_SIZE) {
+			status = -1;
+			dev_err(&fpc->spi->dev,
+				"%s: Invalid setup data size\n", __func__);
+			break;
+		}
+
+		memcpy(access_bytes, fpc->setup_data->xfers[i].xfer_buf,
+			fpc->setup_data->xfers[i].xfer_size);
+		status = fpc1020_spi_writeread(fpc->spi, access_bytes,
+			fpc->setup_data->xfers[i].xfer_size);
+		if (status) {
+			dev_err(&fpc->spi->dev, "%s: SPI transfer setup data failed: %d\n",
+				__func__, status);
+			break;
+		}
+	}
+
+	kfree(access_bytes);
+	return status;
+}
+
 static int fpc1020_sleep(struct fpc_data *fpc)
 {
 	int error;
 
-	fpc->scratch_buf[0] = FPC_CMD_DEEP_SLEEP;
+	fpc->scratch_buf[0] = FPC_CMD_SLEEP;
 	error = fpc1020_spi_writeread(fpc->spi, fpc->scratch_buf, 1);
 	if (error) {
 		dev_err(&fpc->spi->dev, "%s: SPI transfer failed: %d\n",
 			__func__, error);
 		return error;
 	}
+
 	return 0;
 }
 
@@ -280,8 +434,46 @@ out:
 	return error ?: count;
 }
 
+static int fpc1020_mmap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
+{
+	struct page *page;
+	struct fpc_data *fpc = vma->vm_private_data;
+	int status = 0;
+
+	mutex_lock(&fpc->mutex);
+
+	if (!fpc->setup_data) {
+		dev_err(&fpc->spi->dev, "%s: no data\n", __func__);
+		status = -ENOMEM;
+		goto out;
+	}
+
+	page = virt_to_page(fpc->setup_data);
+	get_page(page);
+	vmf->page = page;
+
+out:
+	mutex_unlock(&fpc->mutex);
+	return status;
+}
+
+struct vm_operations_struct mmap_vm_ops = {
+	.fault = fpc1020_mmap_fault,
+};
+
+static int fpc1020_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+	struct fpc_data *fpc = filp->private_data;
+
+	vma->vm_ops = &mmap_vm_ops;
+	vma->vm_flags |= VM_RESERVED;
+	vma->vm_private_data = fpc;
+	return 0;
+}
+
 static const struct file_operations fpc_fops = {
 	.owner		= THIS_MODULE,
+	.mmap		= fpc1020_mmap,
 	.poll		= fpc1020_poll,
 	.open		= fpc1020_open,
 	.release	= fpc1020_release,
@@ -312,6 +504,7 @@ static void fpc1020_free(struct device *dev)
 {
 	struct fpc_data *fpc = container_of(dev, struct fpc_data, dev);
 
+	free_page((unsigned long)fpc->setup_data);
 	kfree(fpc->xfer_buf);
 	kfree(fpc);
 }
@@ -357,6 +550,8 @@ static int fpc1020_spi_probe(struct spi_device *spi)
 	fpc = kzalloc(sizeof(*fpc), GFP_KERNEL);
 	if (!fpc)
 		goto err_free_minor;
+
+	fpc->setup_data = (struct fpc_setup_data *)get_zeroed_page(GFP_KERNEL);
 
 	dev_set_name(&fpc->dev, "fpc_sensor%d", minor);
 	fpc->dev.devt = MKDEV(fpc_major, minor);
@@ -442,6 +637,9 @@ static int fpc1020_spi_probe(struct spi_device *spi)
 		goto err_device_del;
 	}
 
+	device_init_wakeup(&spi->dev,
+		device_property_read_bool(&spi->dev, "wakeup-source"));
+
 	return 0;
 
 err_device_del:
@@ -491,6 +689,19 @@ static int __maybe_unused fpc1020_suspend(struct device *dev)
 	struct spi_device *spi = to_spi_device(dev);
 	struct fpc_data *fpc = spi_get_drvdata(spi);
 
+	if (device_may_wakeup(dev)) {
+		if (enable_irq_wake(spi->irq))
+			dev_err(&spi->dev, "enable_irq_wake failed\n");
+
+		if (fpc1020_reset(fpc))
+			dev_err(&fpc->spi->dev,
+				"%s: sensor reset failed\n", __func__);
+
+		if (fpc1020_sensor_setup(fpc))
+			dev_err(&fpc->spi->dev,
+				"%s: sensor setup failed\n", __func__);
+	}
+
 	if (fpc1020_sleep(fpc))
 		dev_warn(&spi->dev,
 			 "failed to put device to sleep when suspending\n");
@@ -500,6 +711,11 @@ static int __maybe_unused fpc1020_suspend(struct device *dev)
 
 static int __maybe_unused fpc1020_resume(struct device *dev)
 {
+	struct spi_device *spi = to_spi_device(dev);
+
+	if (device_may_wakeup(dev))
+		disable_irq_wake(spi->irq);
+
 	return 0;
 }
 

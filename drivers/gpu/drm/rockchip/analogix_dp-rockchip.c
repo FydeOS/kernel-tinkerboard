@@ -214,6 +214,7 @@ rockchip_dp_drm_encoder_atomic_check(struct drm_encoder *encoder,
 				      struct drm_connector_state *conn_state)
 {
 	struct rockchip_crtc_state *s = to_rockchip_crtc_state(crtc_state);
+	struct drm_display_info *di = &conn_state->connector->display_info;
 
 	switch (vop_get_crtc_vop_id(crtc_state->crtc)) {
 	case RK3399_VOP_LIT:
@@ -235,6 +236,7 @@ rockchip_dp_drm_encoder_atomic_check(struct drm_encoder *encoder,
 		break;
 	}
 
+	s->output_bpc = di->bpc;
 	s->output_type = DRM_MODE_CONNECTOR_eDP;
 
 	return 0;

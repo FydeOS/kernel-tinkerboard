@@ -51,6 +51,7 @@ struct vop_ctrl {
 	struct vop_reg mipi_en;
 	struct vop_reg dp_en;
 	struct vop_reg out_mode;
+	struct vop_reg pre_dither_down;
 	struct vop_reg dither_down;
 	struct vop_reg dither_up;
 	struct vop_reg pin_pol;

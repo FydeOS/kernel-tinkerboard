@@ -26,26 +26,58 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/pstore_ram.h>
-#include <linux/spinlock.h>
 #include <asm/page.h>
 
 struct persistent_ram_buffer {
-	uint32_t sig;
-	size_t start;
-	size_t size;
-	uint8_t data[0];
+	uint32_t    sig;
+	atomic_t    start;
+	atomic_t    size;
+	uint8_t     data[0];
 };
 
 #define PERSISTENT_RAM_SIG (0x43474244) /* DBGC */
 
 static inline size_t buffer_size(struct persistent_ram_zone *prz)
 {
-	return prz->buffer->size;
+	return atomic_read(&prz->buffer->size);
 }
 
 static inline size_t buffer_start(struct persistent_ram_zone *prz)
 {
-	return prz->buffer->start;
+	return atomic_read(&prz->buffer->start);
+}
+
+/* increase and wrap the start pointer, returning the old value */
+static size_t buffer_start_add_atomic(struct persistent_ram_zone *prz, size_t a)
+{
+	int old;
+	int new;
+
+	do {
+		old = atomic_read(&prz->buffer->start);
+		new = old + a;
+		while (unlikely(new >= prz->buffer_size))
+			new -= prz->buffer_size;
+	} while (atomic_cmpxchg(&prz->buffer->start, old, new) != old);
+
+	return old;
+}
+
+/* increase the size counter until it hits the max size */
+static void buffer_size_add_atomic(struct persistent_ram_zone *prz, size_t a)
+{
+	size_t old;
+	size_t new;
+
+	if (atomic_read(&prz->buffer->size) == prz->buffer_size)
+		return;
+
+	do {
+		old = atomic_read(&prz->buffer->size);
+		new = old + a;
+		if (new > prz->buffer_size)
+			new = prz->buffer_size;
+	} while (atomic_cmpxchg(&prz->buffer->size, old, new) != old);
 }
 
 static DEFINE_RAW_SPINLOCK(buffer_lock);
@@ -59,11 +91,11 @@ static size_t buffer_start_add_locked(struct persistent_ram_zone *prz, size_t a)
 
 	raw_spin_lock_irqsave(&buffer_lock, flags);
 
-	old = prz->buffer->start;
+	old = atomic_read(&prz->buffer->start);
 	new = old + a;
 	while (unlikely(new >= prz->buffer_size))
 		new -= prz->buffer_size;
-	prz->buffer->start = new;
+	atomic_set(&prz->buffer->start, new);
 
 	raw_spin_unlock_irqrestore(&buffer_lock, flags);
 
@@ -79,21 +111,21 @@ static void buffer_size_add_locked(struct persistent_ram_zone *prz, size_t a)
 
 	raw_spin_lock_irqsave(&buffer_lock, flags);
 
-	old = prz->buffer->size;
+	old = atomic_read(&prz->buffer->size);
 	if (old == prz->buffer_size)
 		goto exit;
 
 	new = old + a;
 	if (new > prz->buffer_size)
 		new = prz->buffer_size;
-	prz->buffer->size = new;
+	atomic_set(&prz->buffer->size, new);
 
 exit:
 	raw_spin_unlock_irqrestore(&buffer_lock, flags);
 }
 
-static size_t (*buffer_start_add)(struct persistent_ram_zone *, size_t) = buffer_start_add_locked;
-static void (*buffer_size_add)(struct persistent_ram_zone *, size_t) = buffer_size_add_locked;
+static size_t (*buffer_start_add)(struct persistent_ram_zone *, size_t) = buffer_start_add_atomic;
+static void (*buffer_size_add)(struct persistent_ram_zone *, size_t) = buffer_size_add_atomic;
 
 static void notrace persistent_ram_encode_rs8(struct persistent_ram_zone *prz,
 	uint8_t *data, size_t len, uint8_t *ecc)
@@ -343,8 +375,8 @@ void persistent_ram_free_old(struct persistent_ram_zone *prz)
 
 void persistent_ram_zap(struct persistent_ram_zone *prz)
 {
-	prz->buffer->start = 0;
-	prz->buffer->size = 0;
+	atomic_set(&prz->buffer->start, 0);
+	atomic_set(&prz->buffer->size, 0);
 	persistent_ram_update_header_ecc(prz);
 }
 
@@ -393,6 +425,9 @@ static void *persistent_ram_iomap(phys_addr_t start, size_t size,
 			(unsigned long long)size, (unsigned long long)start);
 		return NULL;
 	}
+
+	buffer_start_add = buffer_start_add_locked;
+	buffer_size_add = buffer_size_add_locked;
 
 	if (memtype)
 		va = ioremap(start, size);

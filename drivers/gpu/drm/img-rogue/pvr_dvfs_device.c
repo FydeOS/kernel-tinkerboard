@@ -511,6 +511,8 @@ void DeinitDVFS(PVRSRV_DEVICE_NODE *psDeviceNode)
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 16, 0))
 		devfreq_remove_device(psDVFSDevice->psDevFreq);
+#else
+		devm_devfreq_remove_device(psDev, psDVFSDevice->psDevFreq);
 #endif
 
 		psDVFSDevice->psDevFreq = NULL;

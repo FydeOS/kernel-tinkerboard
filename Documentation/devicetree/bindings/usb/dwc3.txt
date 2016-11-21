@@ -57,6 +57,7 @@ Optional properties:
  - snps,usb3-slow-suspend-quirk: when set, need an extraordinary delay to
 			wait for xHC enter the Halted state(i.e. HCH in the
 			USBSTS register is '1').
+ - snps,usb3-warm-reset-on-resume-quirk: when set, need warm reset on resume.
 
  - <DEPRECATED> tx-fifo-resize: determines if the FIFO *has* to be reallocated.
 

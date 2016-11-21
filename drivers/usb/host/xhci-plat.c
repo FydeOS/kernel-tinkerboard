@@ -165,6 +165,9 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	if (pdata && pdata->usb3_slow_suspend)
 		xhci->quirks |= XHCI_SLOW_SUSPEND;
 
+	if (pdata && pdata->usb3_warm_reset_on_resume)
+		xhci->quirks |= XHCI_WARM_RESET_ON_RESUME;
+
 	if (HCC_MAX_PSA(xhci->hcc_params) >= 4)
 		xhci->shared_hcd->can_do_streams = 1;
 

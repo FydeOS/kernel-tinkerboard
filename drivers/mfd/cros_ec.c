@@ -59,7 +59,7 @@ static int cros_ec_get_ec_wake_gpe(struct device *dev)
 	 * This code goes looks for LID0 acpi device.
 	 */
 	acpi_handle parent_handle = ACPI_COMPANION(dev)->parent->handle;
-	struct acpi_device *adev;
+	struct acpi_device *adev = NULL;
 	acpi_handle handle;
 	acpi_status status;
 
@@ -71,7 +71,7 @@ static int cros_ec_get_ec_wake_gpe(struct device *dev)
 		return -ENXIO;
 	}
 
-	adev = acpi_bus_get_acpi_device(handle);
+	acpi_bus_get_device(handle, &adev);
 
 	if (adev)
 		return adev->wakeup.gpe_number;

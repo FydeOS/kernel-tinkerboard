@@ -126,6 +126,9 @@ static void dwc3_rockchip_otg_extcon_evt_work(struct work_struct *work)
 		 * we still need to deassert reset and add the HCDs
 		 * to avoid a crash when unloading the driver.
 		 */
+		if (phy_power_on(dwc->usb2_generic_phy) < 0)
+			dev_err(dwc->dev, "Failed to power on usb2 phy\n");
+
 		if (phy_power_on(dwc->usb3_generic_phy) < 0)
 			dev_err(dwc->dev, "Failed to power on usb3 phy\n");
 
@@ -217,6 +220,7 @@ static void dwc3_rockchip_otg_extcon_evt_work(struct work_struct *work)
 
 		pm_runtime_put_sync_suspend(dwc->dev);
 
+		phy_power_off(dwc->usb2_generic_phy);
 		phy_power_off(dwc->usb3_generic_phy);
 
 		rockchip->connected = false;
@@ -384,6 +388,7 @@ static int dwc3_rockchip_probe(struct platform_device *pdev)
 			pm_runtime_allow(&child_pdev->dev);
 			pm_runtime_put_sync(dev);
 
+			phy_power_off(dwc->usb2_generic_phy);
 			phy_power_off(dwc->usb3_generic_phy);
 
 			if (extcon_get_cable_state_(rockchip->edev,

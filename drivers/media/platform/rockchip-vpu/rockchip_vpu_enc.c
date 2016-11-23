@@ -349,7 +349,7 @@ static int vidioc_enum_framesizes(struct file *file, void *prov,
 	s->step_width = MB_DIM;
 	s->min_height = ROCKCHIP_ENC_MIN_HEIGHT;
 	s->max_height = ROCKCHIP_ENC_MAX_HEIGHT;
-	s->step_height = MB_DIM * 2;
+	s->step_height = MB_DIM;
 
 	return 0;
 }
@@ -481,7 +481,7 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 				ROCKCHIP_ENC_MAX_HEIGHT);
 		/* Round up to macroblocks. */
 		pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
-		pix_fmt_mp->height = round_up(pix_fmt_mp->height, MB_DIM * 2);
+		pix_fmt_mp->height = round_up(pix_fmt_mp->height, MB_DIM);
 		break;
 
 	default:

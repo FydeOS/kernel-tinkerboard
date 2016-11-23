@@ -954,6 +954,14 @@ ap_i2c_audio: &i2c8 {
 	status = "okay";
 };
 
+&u2phy0_otg {
+	status = "okay";
+};
+
+&u2phy1_otg {
+	status = "okay";
+};
+
 &uart2 {
 	status = "okay";
 };

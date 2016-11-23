@@ -36,7 +36,7 @@
 #ifdef CONFIG_ACPI
 #define ACPI_LID_DEVICE      "LID0"
 
-static int ec_wake_gpe = -1;
+static int ec_wake_gpe = -ENXIO;
 
 /*
  * Installing a GPE handler to indicate to ACPI core
@@ -58,28 +58,25 @@ static int cros_ec_get_ec_wake_gpe(struct device *dev)
 	 * LID0 device includes the EC_WAKE_GPE in PRW
 	 * This code goes looks for LID0 acpi device.
 	 */
-	acpi_handle parent_handle = ACPI_COMPANION(dev)->parent->handle;
+	struct acpi_device *cros_acpi_dev = ACPI_COMPANION(dev);
 	struct acpi_device *adev = NULL;
 	acpi_handle handle;
 	acpi_status status;
 
-	status = acpi_get_handle(parent_handle, ACPI_LID_DEVICE, &handle);
-
-	if (ACPI_FAILURE(status)) {
-		dev_err(dev, "Unable to find ACPI device %s: %d\n",
-			ACPI_LID_DEVICE, status);
+	if (!cros_acpi_dev || !cros_acpi_dev->parent ||
+	   !cros_acpi_dev->parent->handle)
 		return -ENXIO;
-	}
+
+	status = acpi_get_handle(cros_acpi_dev->parent->handle,
+			ACPI_LID_DEVICE, &handle);
+	if (ACPI_FAILURE(status))
+		return -ENXIO;
 
 	acpi_bus_get_device(handle, &adev);
-
-	if (adev)
-		return adev->wakeup.gpe_number;
-	else {
-		dev_err(dev, "Unable to get ACPI device handle %s\n",
-			ACPI_LID_DEVICE);
+	if (!adev)
 		return -ENXIO;
-	}
+
+	return adev->wakeup.gpe_number;
 }
 
 static int cros_ec_install_handler(struct device *dev)
@@ -88,23 +85,16 @@ static int cros_ec_install_handler(struct device *dev)
 
 	ec_wake_gpe = cros_ec_get_ec_wake_gpe(dev);
 
-	if (ec_wake_gpe >= 0) {
-		status = acpi_install_gpe_handler(NULL, ec_wake_gpe,
-				ACPI_GPE_EDGE_TRIGGERED,
-				&cros_ec_gpe_handler, NULL);
+	if (ec_wake_gpe < 0)
+		return ec_wake_gpe;
 
-		if (ACPI_FAILURE(status)) {
-			dev_err(dev,
-				"Failed to install GPE handler with GPE "
-				"number 0x%x\n", ec_wake_gpe);
-			return -ENODEV;
-		}
-
-		dev_info(dev, "Initialized, GPE = 0x%x\n", ec_wake_gpe);
-	} else {
-		dev_err(dev, "EC Wake GPE not found \n");
+	status = acpi_install_gpe_handler(NULL, ec_wake_gpe,
+			ACPI_GPE_EDGE_TRIGGERED,
+			&cros_ec_gpe_handler, NULL);
+	if (ACPI_FAILURE(status))
 		return -ENODEV;
-	}
+
+	dev_info(dev, "Initialized, GPE = 0x%x\n", ec_wake_gpe);
 	return 0;
 }
 #endif
@@ -348,7 +338,13 @@ EXPORT_SYMBOL(cros_ec_register);
 int cros_ec_remove(struct cros_ec_device *ec_dev)
 {
 	mfd_remove_devices(ec_dev->dev);
+#ifdef CONFIG_ACPI
+	if (ec_wake_gpe >= 0)
+		if (ACPI_FAILURE(acpi_remove_gpe_handler(NULL, ec_wake_gpe,
+					&cros_ec_gpe_handler)))
+			pr_err("failed to remove gpe handler\n");
 
+#endif
 	return 0;
 }
 EXPORT_SYMBOL(cros_ec_remove);

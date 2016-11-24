@@ -215,6 +215,11 @@ struct rockchip_pcie {
 	bool	enable_gen2;
 	struct	device *dev;
 	struct	irq_domain *irq_domain;
+	u32     io_size;
+	int     offset;
+	phys_addr_t io_bus_addr;
+	u32     mem_size;
+	phys_addr_t mem_bus_addr;
 };
 
 static u32 rockchip_pcie_read(struct rockchip_pcie *rockchip, u32 reg)
@@ -1138,6 +1143,50 @@ static int rockchip_pcie_prog_ib_atu(struct rockchip_pcie *rockchip,
 	return 0;
 }
 
+static int rockchip_cfg_atu(struct rockchip_pcie *rockchip)
+{
+	int offset;
+	int err;
+	int reg_no;
+
+	for (reg_no = 0; reg_no < (rockchip->mem_size >> 20); reg_no++) {
+		err = rockchip_pcie_prog_ob_atu(rockchip, reg_no + 1,
+						AXI_WRAPPER_MEM_WRITE,
+						20 - 1,
+						rockchip->mem_bus_addr +
+						(reg_no << 20),
+						0);
+		if (err) {
+			dev_err(rockchip->dev,
+					"program RC mem outbound ATU failed\n");
+			return err;
+		}
+	}
+
+	err = rockchip_pcie_prog_ib_atu(rockchip, 2, 32 - 1, 0x0, 0);
+	if (err) {
+		dev_err(rockchip->dev, "program RC mem inbound ATU failed\n");
+		return err;
+	}
+
+	offset = rockchip->mem_size >> 20;
+	for (reg_no = 0; reg_no < (rockchip->io_size >> 20); reg_no++) {
+		err = rockchip_pcie_prog_ob_atu(rockchip,
+						reg_no + 1 + offset,
+						AXI_WRAPPER_IO_WRITE,
+						20 - 1,
+						rockchip->io_bus_addr +
+						(reg_no << 20),
+						0);
+		if (err) {
+			dev_err(rockchip->dev,
+					"program RC io outbound ATU failed\n");
+			return err;
+		}
+	}
+
+	return err;
+}
 static int rockchip_pcie_probe(struct platform_device *pdev)
 {
 	struct rockchip_pcie *rockchip;
@@ -1147,13 +1196,7 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 	resource_size_t io_base;
 	struct resource	*mem;
 	struct resource	*io;
-	phys_addr_t io_bus_addr = 0;
-	u32 io_size;
-	phys_addr_t mem_bus_addr = 0;
-	u32 mem_size = 0;
-	int reg_no;
 	int err;
-	int offset;
 
 	LIST_HEAD(res);
 
@@ -1225,8 +1268,8 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 		case IORESOURCE_IO:
 			io = win->res;
 			io->name = "I/O";
-			io_size = resource_size(io);
-			io_bus_addr = io->start - win->offset;
+			rockchip->io_size = resource_size(io);
+			rockchip->io_bus_addr = io->start - win->offset;
 			err = pci_remap_iospace(io, io_base);
 			if (err) {
 				dev_warn(dev, "error %d: failed to map resource %pR\n",
@@ -1237,8 +1280,8 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 		case IORESOURCE_MEM:
 			mem = win->res;
 			mem->name = "MEM";
-			mem_size = resource_size(mem);
-			mem_bus_addr = mem->start - win->offset;
+			rockchip->mem_size = resource_size(mem);
+			rockchip->mem_bus_addr = mem->start - win->offset;
 			break;
 		case IORESOURCE_BUS:
 			rockchip->root_bus_nr = win->res->start;
@@ -1248,45 +1291,9 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 		}
 	}
 
-	if (mem_size) {
-		for (reg_no = 0; reg_no < (mem_size >> 20); reg_no++) {
-			err = rockchip_pcie_prog_ob_atu(rockchip, reg_no + 1,
-							AXI_WRAPPER_MEM_WRITE,
-							20 - 1,
-							mem_bus_addr +
-							(reg_no << 20),
-							0);
-			if (err) {
-				dev_err(dev, "program RC mem outbound ATU failed\n");
-				goto err_vpcie;
-			}
-		}
-	}
-
-	err = rockchip_pcie_prog_ib_atu(rockchip, 2, 32 - 1, 0x0, 0);
-	if (err) {
-		dev_err(dev, "program RC mem inbound ATU failed\n");
+	err = rockchip_cfg_atu(rockchip);
+	if (err)
 		goto err_vpcie;
-	}
-
-	offset = mem_size >> 20;
-
-	if (io_size) {
-		for (reg_no = 0; reg_no < (io_size >> 20); reg_no++) {
-			err = rockchip_pcie_prog_ob_atu(rockchip,
-							reg_no + 1 + offset,
-							AXI_WRAPPER_IO_WRITE,
-							20 - 1,
-							io_bus_addr +
-							(reg_no << 20),
-							0);
-			if (err) {
-				dev_err(dev, "program RC io outbound ATU failed\n");
-				goto err_vpcie;
-			}
-		}
-	}
-
 	bus = pci_scan_root_bus(&pdev->dev, 0, &rockchip_pcie_ops, rockchip, &res);
 	if (!bus) {
 		err = -ENOMEM;

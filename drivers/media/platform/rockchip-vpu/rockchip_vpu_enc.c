@@ -431,12 +431,32 @@ static int vidioc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	return 0;
 }
 
+static void calculate_plane_sizes(const struct rockchip_vpu_fmt *fmt,
+				  unsigned int w, unsigned int h,
+				  struct v4l2_pix_format_mplane *pix_fmt_mp)
+{
+	int i;
+
+	for (i = 0; i < fmt->num_planes; ++i) {
+		pix_fmt_mp->plane_fmt[i].bytesperline = w * fmt->depth[i] / 8;
+		pix_fmt_mp->plane_fmt[i].sizeimage = h *
+					pix_fmt_mp->plane_fmt[i].bytesperline;
+		/*
+		 * All of multiplanar formats we support have chroma
+		 * planes subsampled by 2 vertically.
+		 */
+		if (i != 0)
+			pix_fmt_mp->plane_fmt[i].sizeimage /= 2;
+	}
+}
+
 static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct rockchip_vpu_dev *dev = video_drvdata(file);
 	const struct rockchip_vpu_fmt *fmt;
 	struct v4l2_pix_format_mplane *pix_fmt_mp = &f->fmt.pix_mp;
 	char str[5];
+	unsigned int mb_width, mb_height;
 
 	vpu_debug_enter();
 
@@ -482,6 +502,17 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 		/* Round up to macroblocks. */
 		pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
 		pix_fmt_mp->height = round_up(pix_fmt_mp->height, MB_DIM);
+
+		mb_width = MB_WIDTH(pix_fmt_mp->width);
+		mb_height = MB_HEIGHT(pix_fmt_mp->height);
+
+		vpu_debug(0, "OUTPUT codec mode: %d\n", fmt->codec_mode);
+		vpu_debug(0, "fmt - w: %d, h: %d, mb - w: %d, h: %d\n",
+			  pix_fmt_mp->width, pix_fmt_mp->height,
+			  mb_width, mb_height);
+
+		calculate_plane_sizes(fmt, mb_width * MB_DIM,
+					mb_height * MB_DIM, pix_fmt_mp);
 		break;
 
 	default:
@@ -494,32 +525,11 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	return 0;
 }
 
-static void calculate_plane_sizes(const struct rockchip_vpu_fmt *fmt,
-				  unsigned int w, unsigned int h,
-				  struct v4l2_pix_format_mplane *pix_fmt_mp)
-{
-	int i;
-
-	for (i = 0; i < fmt->num_planes; ++i) {
-		pix_fmt_mp->plane_fmt[i].bytesperline = w * fmt->depth[i] / 8;
-		pix_fmt_mp->plane_fmt[i].sizeimage = h *
-					pix_fmt_mp->plane_fmt[i].bytesperline;
-		/*
-		 * All of multiplanar formats we support have chroma
-		 * planes subsampled by 2 vertically.
-		 */
-		if (i != 0)
-			pix_fmt_mp->plane_fmt[i].sizeimage /= 2;
-	}
-}
-
 static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct v4l2_pix_format_mplane *pix_fmt_mp = &f->fmt.pix_mp;
 	struct rockchip_vpu_ctx *ctx = fh_to_ctx(priv);
 	struct rockchip_vpu_dev *dev = ctx->dev;
-	unsigned int mb_width, mb_height;
-	const struct rockchip_vpu_fmt *fmt;
 	int ret = 0;
 
 	vpu_debug_enter();
@@ -566,19 +576,8 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 		if (ret)
 			goto out;
 
-		fmt = find_format(dev, pix_fmt_mp->pixelformat, false);
-		ctx->vpu_src_fmt = fmt;
-
-		mb_width = MB_WIDTH(pix_fmt_mp->width);
-		mb_height = MB_HEIGHT(pix_fmt_mp->height);
-
-		vpu_debug(0, "OUTPUT codec mode: %d\n", fmt->codec_mode);
-		vpu_debug(0, "fmt - w: %d, h: %d, mb - w: %d, h: %d\n",
-			  pix_fmt_mp->width, pix_fmt_mp->height,
-			  mb_width, mb_height);
-
-		calculate_plane_sizes(fmt, mb_width * MB_DIM,
-					mb_height * MB_DIM, pix_fmt_mp);
+		ctx->vpu_src_fmt = find_format(dev, pix_fmt_mp->pixelformat,
+					       false);
 
 		/* Reset crop rectangle. */
 		ctx->src_crop.width = pix_fmt_mp->width;

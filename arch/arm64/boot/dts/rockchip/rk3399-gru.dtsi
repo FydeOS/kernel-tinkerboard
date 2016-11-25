@@ -849,6 +849,9 @@ ap_i2c_audio: &i2c8 {
 &spi1 {
 	status = "okay";
 
+	pinctrl-names = "default", "sleep";
+	pinctrl-1 = <&spi1_sleep>;
+
 	spiflash@0 {
 		compatible = "jedec,spi-nor";
 
@@ -1177,6 +1180,19 @@ ap_i2c_audio: &i2c8 {
 		/* This is where we actually hook up CD; has external pull */
 		sdmmc_cd_gpio: sdmmc-cd-gpio {
 			rockchip,pins = <4 24 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
+	spi1 {
+		spi1_sleep: spi1-sleep {
+			/*
+			 * Pull down SPI1 CLK/CS/RX/TX during suspend, to
+			 * prevent leakage.
+			 */
+			rockchip,pins = <1 9 RK_FUNC_GPIO &pcfg_pull_down>,
+					<1 10 RK_FUNC_GPIO &pcfg_pull_down>,
+					<1 7 RK_FUNC_GPIO &pcfg_pull_down>,
+					<1 8 RK_FUNC_GPIO &pcfg_pull_down>;
 		};
 	};
 

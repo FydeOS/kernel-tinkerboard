@@ -501,6 +501,7 @@ static int mxt_calc_resolution_T9(struct mxt_data *data);
 static int mxt_calc_resolution_T100(struct mxt_data *data);
 static void mxt_free_object_table(struct mxt_data *data);
 static void mxt_save_power_config(struct mxt_data *data);
+static void mxt_save_aux_regs(struct mxt_data *data);
 static void mxt_start(struct mxt_data *data);
 static void mxt_stop(struct mxt_data *data);
 static int mxt_initialize(struct mxt_data *data);
@@ -1049,9 +1050,42 @@ static int mxt_write_obj_instance(struct mxt_data *data, u8 type, u8 instance,
 	return mxt_write_reg(data->client, reg, val);
 }
 
+static int mxt_ensure_obj_instance(struct mxt_data *data, u8 type, u8 instance,
+		u8 offset, u8 val)
+{
+	struct mxt_object *object;
+	u16 reg;
+	u8 current_val;
+	int ret;
+
+	object = mxt_get_object(data, type);
+	if (!object || offset >= mxt_obj_size(object) ||
+	    instance >= mxt_obj_instances(object))
+		return -EINVAL;
+
+	reg = object->start_address + instance * mxt_obj_size(object) + offset;
+
+	ret = __mxt_read_reg(data->client, reg, 1, &current_val);
+	if (ret)
+		return -EINVAL;
+
+	if (val != current_val) {
+		ret = __mxt_write_reg(data->client, reg, 1, &val);
+		if (ret)
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int mxt_write_object(struct mxt_data *data, u8 type, u8 offset, u8 val)
 {
 	return mxt_write_obj_instance(data, type, 0, offset, val);
+}
+
+static int mxt_ensure_object(struct mxt_data *data, u8 type, u8 offset, u8 val)
+{
+	return mxt_ensure_obj_instance(data, type, 0, offset, val);
 }
 
 static int mxt_recalibrate(struct mxt_data *data)
@@ -1906,6 +1940,7 @@ static int mxt_initialize(struct mxt_data *data)
 			info->object_num);
 
 	mxt_save_power_config(data);
+	mxt_save_aux_regs(data);
 	mxt_stop(data);
 
 	return 0;
@@ -2361,6 +2396,7 @@ static int mxt_load_config(struct mxt_data *data, const struct firmware *fw)
 	msleep(MXT_RESET_TIME);
 
 	mxt_save_power_config(data);
+	mxt_save_aux_regs(data);
 	mxt_stop(data);
 
 register_input_dev:
@@ -3372,19 +3408,6 @@ static void mxt_restore_aux_regs(struct mxt_data *data)
 	}
 }
 
-static void mxt_start(struct mxt_data *data)
-{
-	mxt_restore_power_config(data);
-
-	/* Enable touch reporting */
-	if (data->has_T9)
-		mxt_write_object(data, MXT_TOUCH_MULTI_T9, MXT_TOUCH_CTRL,
-				 MXT_TOUCH_CTRL_OPERATIONAL);
-	else
-		mxt_write_object(data, MXT_TOUCH_MULTITOUCHSCREEN_T100,
-				 MXT_T100_CTRL, MXT_TOUCH_CTRL_OPERATIONAL);
-}
-
 static void mxt_deep_sleep(struct mxt_data *data)
 {
 	static const u8 T7_config_deepsleep[3] = { 0x00, 0x00, 0x00 };
@@ -3398,6 +3421,20 @@ static void mxt_deep_sleep(struct mxt_data *data)
 			error);
 }
 
+static void mxt_start(struct mxt_data *data)
+{
+	if (data->has_T100)
+		mxt_ensure_object(data, MXT_TOUCH_MULTITOUCHSCREEN_T100,
+				  MXT_T100_CTRL, MXT_TOUCH_CTRL_OPERATIONAL);
+
+	mxt_restore_power_config(data);
+
+	/* Enable touch reporting */
+	if (data->has_T9)
+		mxt_write_object(data, MXT_TOUCH_MULTI_T9, MXT_TOUCH_CTRL,
+				 MXT_TOUCH_CTRL_OPERATIONAL);
+}
+
 static void mxt_stop(struct mxt_data *data)
 {
 	mxt_deep_sleep(data);
@@ -3406,9 +3443,6 @@ static void mxt_stop(struct mxt_data *data)
 	if (data->has_T9)
 		mxt_write_object(data, MXT_TOUCH_MULTI_T9, MXT_TOUCH_CTRL,
 				 MXT_TOUCH_CTRL_OFF);
-	else
-		mxt_write_object(data, MXT_TOUCH_MULTITOUCHSCREEN_T100,
-				 MXT_T100_CTRL, MXT_TOUCH_CTRL_OFF);
 }
 
 static int mxt_input_open(struct input_dev *dev)

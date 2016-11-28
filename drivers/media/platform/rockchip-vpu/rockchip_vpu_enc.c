@@ -456,7 +456,9 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	const struct rockchip_vpu_fmt *fmt;
 	struct v4l2_pix_format_mplane *pix_fmt_mp = &f->fmt.pix_mp;
 	char str[5];
+	unsigned long dma_align;
 	unsigned int mb_width, mb_height;
+	int i;
 
 	vpu_debug_enter();
 
@@ -513,6 +515,14 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 		calculate_plane_sizes(fmt, mb_width * MB_DIM,
 					mb_height * MB_DIM, pix_fmt_mp);
+		dma_align = dma_get_cache_alignment();
+		for (i = 0; i < fmt->num_planes; i++) {
+			if (!IS_ALIGNED(pix_fmt_mp->plane_fmt[i].sizeimage,
+					dma_align)) {
+				vpu_err("plane size does not match cache alignment\n");
+				return -EINVAL;
+			}
+		}
 		break;
 
 	default:

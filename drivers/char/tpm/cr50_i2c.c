@@ -35,6 +35,7 @@
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/slab.h>
+#include <linux/suspend.h>
 #include <linux/interrupt.h>
 #include <linux/wait.h>
 #include "tpm.h"
@@ -639,7 +640,53 @@ static int cr50_i2c_remove(struct i2c_client *client)
 	return 0;
 }
 
-static SIMPLE_DEV_PM_OPS(cr50_i2c_pm, tpm_pm_suspend, tpm_pm_resume);
+#ifdef CONFIG_PM_SLEEP
+static int __maybe_unused cr50_i2c_resume(struct device *dev)
+{
+	/*
+	 * Start the TPM with restored state if not suspended via firmware
+	 * because it may go into deep sleep and lose context.  With suspend
+	 * via firmware this step is already done by the BIOS.
+	 */
+	if (!pm_suspend_via_firmware()) {
+		struct tpm_chip *chip = dev_get_drvdata(dev);
+		struct tpm2_startup_cmd {
+			struct tpm_input_header header;
+			__be16 startup_type;
+		} __packed cmd = {
+			.header = {
+				.tag = cpu_to_be16(TPM2_ST_NO_SESSIONS),
+				.ordinal = cpu_to_be32(TPM2_CC_STARTUP),
+				.length = cpu_to_be32(sizeof(u16) +
+					      sizeof(struct tpm_input_header))
+			},
+			.startup_type = cpu_to_be16(TPM2_SU_STATE)
+		};
+
+		/*
+		 * Pass an empty description to tpm_transmit_cmd() to prevent
+		 * an error message from being printed if the command fails.
+		 */
+		int rc = tpm_transmit_cmd(chip, &cmd, sizeof(cmd), 0, NULL);
+
+		/*
+		 * If the suspend-to-idle residency is too short then the TPM
+		 * will not go to sleep yet so the command may return
+		 * TPM2_RC_INITIALIZE which is non-fatal and can be ignored.
+		 */
+		if (rc == TPM2_RC_INITIALIZE) {
+			return 0;
+		} else if (rc) {
+			dev_err(dev, "TPM2_Startup(SU_STATE) failed: %d\n", rc);
+			return rc;
+		}
+	}
+
+	return tpm_pm_resume(dev);
+}
+#endif
+
+static SIMPLE_DEV_PM_OPS(cr50_i2c_pm, tpm_pm_suspend, cr50_i2c_resume);
 
 static struct i2c_driver cr50_i2c_driver = {
 	.id_table = cr50_i2c_table,

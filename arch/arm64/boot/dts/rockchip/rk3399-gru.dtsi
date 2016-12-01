@@ -420,6 +420,12 @@
 		vin-supply = <&pp3000>;
 	};
 
+	/*
+	 * Technically, this is a small abuse of 'regulator-gpio'; this
+	 * regulator is a mux between pp1800 and pp3300. pp1800 and pp3300 are
+	 * always on though, so it is sufficient to simply control the mux
+	 * here.
+	 */
 	ppvar_sd_card_io: ppvar-sd-card-io {
 		compatible = "regulator-gpio";
 		regulator-name = "ppvar_sd_card_io";
@@ -434,9 +440,6 @@
 
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <3000000>;
-
-		// TODO: add support in driver for input supplies.
-		// ...and specify pp3000 and pp1800.
 	};
 
 	/* pp3300 aliases; these are always on for AP so just use alias */
@@ -472,8 +475,7 @@
 
 		enable-active-high;
 
-		// TODO: I _think_ it's OK to specify the same GPIO in two
-		// regulator-fixed regulators.  See pp1800_pcie
+		/* NOTE: this GPIO also used in pp1800_pcie */
 		gpio = <&gpio0 4 GPIO_ACTIVE_HIGH>;
 
 		vin-supply = <&pp3300>;
@@ -645,11 +647,9 @@
 ap_i2c_mic: &i2c1 {
 	status = "okay";
 
-	// TODO: device can handle 1MHz, can the bus?
-	// http://crosbug.com/p/53683
 	clock-frequency = <400000>;
 
-	/* These are relatively safe rise/fall times; TODO: measure */
+	/* These are relatively safe rise/fall times */
 	i2c-scl-falling-time-ns = <50>;
 	i2c-scl-rising-time-ns = <300>;
 
@@ -672,7 +672,7 @@ ap_i2c_ts: &i2c3 {
 
 	clock-frequency = <400000>;
 
-	/* These are relatively safe rise/fall times; TODO: measure */
+	/* These are relatively safe rise/fall times */
 	i2c-scl-falling-time-ns = <50>;
 	i2c-scl-rising-time-ns = <300>;
 };
@@ -690,7 +690,7 @@ ap_i2c_tp: &i2c5 {
 
 	clock-frequency = <400000>;
 
-	/* These are relatively safe rise/fall times; TODO: measure */
+	/* These are relatively safe rise/fall times */
 	i2c-scl-falling-time-ns = <50>;
 	i2c-scl-rising-time-ns = <300>;
 };
@@ -698,15 +698,12 @@ ap_i2c_tp: &i2c5 {
 ap_i2c_audio: &i2c8 {
 	status = "okay";
 
-	// TODO: device can handle 1MHz, can the bus?  Probably...
-	// http://crosbug.com/p/53683
 	clock-frequency = <400000>;
 
-	/* These are relatively safe rise/fall times; TODO: measure */
+	/* These are relatively safe rise/fall times */
 	i2c-scl-falling-time-ns = <50>;
 	i2c-scl-rising-time-ns = <300>;
 
-	// TODO: Put dlg,da7219 here
 	codec: da7219@1a {
 		compatible = "dlg,da7219";
 		reg = <0x1a>;
@@ -721,12 +718,9 @@ ap_i2c_audio: &i2c8 {
 		VDDMIC-supply = <&pp3300>;
 		VDDIO-supply = <&pp1800>;
 
-		// TODO: I THINK this is right, but it's a bit of a guess.
 		clocks = <&cru SCLK_I2S_8CH_OUT>;
 		clock-names = "mclk";
 
-// Below is from bindings; we need to adjust for our SoC / board.
-		dlg,ldo-lvl = <1200>;
 		dlg,micbias-lvl = <2600>;
 		dlg,mic-amp-in-sel = "diff";
 
@@ -858,8 +852,7 @@ ap_i2c_audio: &i2c8 {
 	spiflash@0 {
 		compatible = "jedec,spi-nor";
 
-		// TODO: can run faster once verified.
-		// TODO: add rx-sample-delay-ns.
+		/* May run faster once verified. */
 		spi-max-frequency = <10000000>;
 		reg = <0>;
 	};
@@ -872,8 +865,7 @@ ap_i2c_audio: &i2c8 {
 		compatible = "realtek,rt5514";
 		reg = <0>;
 
-		// TODO: can run faster once verified.
-		// TODO: add rx-sample-delay-ns.
+		/* May run faster once verified. */
 		spi-max-frequency = <10000000>;
 	};
 };
@@ -887,10 +879,10 @@ ap_i2c_audio: &i2c8 {
 		pinctrl-names = "default";
 		pinctrl-0 = <&ec_ap_int_l>;
 
-		google,cros-ec-spi-pre-delay = <30>;	// TODO: check
+		google,cros-ec-spi-pre-delay = <30>;
 		interrupt-parent = <&gpio0>;
 		interrupts = <1 IRQ_TYPE_LEVEL_LOW>;
-		spi-max-frequency = <3000000>;		// TODO: check; TODO: rx-sample-delay-ns?
+		spi-max-frequency = <3000000>;
 
 		i2c_tunnel: i2c-tunnel {
 			compatible = "google,cros-ec-i2c-tunnel";
@@ -1134,7 +1126,6 @@ ap_i2c_audio: &i2c8 {
 			rockchip,pins = <1 23 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 
-		// TODO: check pull.  From signal name assume active high.
 		mic_int: mic-int {
 			rockchip,pins = <1 13 RK_FUNC_GPIO &pcfg_pull_down>;
 		};

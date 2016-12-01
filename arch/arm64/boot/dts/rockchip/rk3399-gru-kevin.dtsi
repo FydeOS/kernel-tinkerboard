@@ -222,7 +222,7 @@ ap_i2c_tpm: &i2c0 {
 
 	clock-frequency = <400000>;
 
-	/* These are relatively safe rise/fall times; TODO: measure */
+	/* These are relatively safe rise/fall times. */
 	i2c-scl-falling-time-ns = <50>;
 	i2c-scl-rising-time-ns = <300>;
 
@@ -238,7 +238,7 @@ ap_i2c_dig: &i2c2 {
 
 	clock-frequency = <400000>;
 
-	/* These are relatively safe rise/fall times; TODO: measure */
+	/* These are relatively safe rise/fall times. */
 	i2c-scl-falling-time-ns = <50>;
 	i2c-scl-rising-time-ns = <300>;
 

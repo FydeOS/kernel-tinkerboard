@@ -56,7 +56,7 @@ struct i915_params i915 __read_mostly = {
 	.edp_vswing = 0,
 	.enable_guc_submission = false,
 	.guc_log_level = -1,
-	.enable_dp_mst = true,
+	.enable_dp_mst = false,
 	.inject_load_failure = 0,
 };
 

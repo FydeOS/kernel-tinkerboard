@@ -381,7 +381,7 @@ static const struct vop_afbdc rk3399_vop_afbdc = {
 };
 
 static const struct vop_reg_data rk3399_init_reg_table[] = {
-	{RK3399_SYS_CTRL, 0x2000f800},
+	{RK3399_SYS_CTRL, 0x2080f800},
 	{RK3399_DSP_CTRL0, 0x00000000},
 	{RK3399_WIN0_CTRL0, 0x00000080},
 	{RK3399_WIN1_CTRL0, 0x00000080},

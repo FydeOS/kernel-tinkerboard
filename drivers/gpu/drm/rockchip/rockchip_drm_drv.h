@@ -21,6 +21,7 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_gem.h>
 
+#include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/component.h>
 
@@ -44,7 +45,11 @@ struct rockchip_crtc_funcs {
 };
 
 struct rockchip_atomic_commit {
-	struct work_struct	work;
+	/* kthread worker for non-blocking commit completion */
+	struct kthread_work work;
+	struct kthread_worker worker;
+	struct task_struct *thread;
+
 	struct drm_atomic_state *state;
 	struct drm_device *dev;
 	struct mutex lock;
@@ -83,7 +88,7 @@ struct rockchip_drm_private {
 	struct drm_atomic_state *state;
 };
 
-void rockchip_drm_atomic_work(struct work_struct *work);
+void rockchip_drm_atomic_work(struct kthread_work *work);
 int rockchip_register_crtc_funcs(struct drm_crtc *crtc,
 				 const struct rockchip_crtc_funcs *crtc_funcs);
 void rockchip_unregister_crtc_funcs(struct drm_crtc *crtc);

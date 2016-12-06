@@ -943,7 +943,7 @@ static int vop_cursor_update(struct drm_plane *plane,
 	 * the cursor plane using the atomic API directly.
 	 */
 	if (commit->needs_modeset || commit->has_cursor_plane)
-		flush_work(&commit->work);
+		flush_kthread_worker(&commit->worker);
 
 	plane_state = plane->funcs->atomic_duplicate_state(plane);
 

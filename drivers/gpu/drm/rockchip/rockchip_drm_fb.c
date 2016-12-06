@@ -274,7 +274,7 @@ rockchip_atomic_commit_complete(struct rockchip_atomic_commit *commit)
 	drm_atomic_state_free(state);
 }
 
-void rockchip_drm_atomic_work(struct work_struct *work)
+void rockchip_drm_atomic_work(struct kthread_work *work)
 {
 	struct rockchip_atomic_commit *commit = container_of(work,
 					struct rockchip_atomic_commit, work);
@@ -301,7 +301,7 @@ int rockchip_drm_atomic_commit(struct drm_device *dev,
 
 	/* serialize outstanding nonblocking commits */
 	mutex_lock(&commit->lock);
-	flush_work(&commit->work);
+	flush_kthread_worker(&commit->worker);
 
 	commit->needs_modeset = false;
 	for_each_crtc_in_state(state, crtc, crtc_state, i) {
@@ -325,7 +325,7 @@ int rockchip_drm_atomic_commit(struct drm_device *dev,
 	commit->state = state;
 
 	if (nonblock)
-		schedule_work(&commit->work);
+		queue_kthread_work(&commit->worker, &commit->work);
 	else
 		rockchip_atomic_commit_complete(commit);
 

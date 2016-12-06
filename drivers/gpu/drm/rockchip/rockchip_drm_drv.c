@@ -173,6 +173,22 @@ static void rockchip_iommu_cleanup(struct drm_device *drm_dev)
 	iommu_domain_free(private->domain);
 }
 
+static int rockchip_initialize_kthread(struct rockchip_atomic_commit *commit)
+{
+	struct sched_param sched = { .sched_priority = 16 };
+
+	init_kthread_worker(&commit->worker);
+	init_kthread_work(&commit->work, rockchip_drm_atomic_work);
+	commit->thread = kthread_run(kthread_worker_fn, &commit->worker,
+				     "rockchip_drm_atomic_complete");
+	if (IS_ERR(commit->thread)) {
+		DRM_ERROR("Failed atomic_complete worker run %ld\n",
+			  PTR_ERR(commit->thread));
+		return PTR_ERR(commit->thread);
+	}
+	return sched_setscheduler(commit->thread, SCHED_FIFO, &sched);
+}
+
 static int rockchip_drm_load(struct drm_device *drm_dev, unsigned long flags)
 {
 	struct rockchip_drm_private *private;
@@ -184,9 +200,12 @@ static int rockchip_drm_load(struct drm_device *drm_dev, unsigned long flags)
 	if (!private)
 		return -ENOMEM;
 
+	ret = rockchip_initialize_kthread(&private->commit);
+	if (ret)
+		goto err_config_cleanup;
+
 	mutex_init(&private->commit.lock);
 	mutex_init(&private->commit.hw_lock);
-	INIT_WORK(&private->commit.work, rockchip_drm_atomic_work);
 
 	drm_dev->dev_private = private;
 
@@ -199,7 +218,7 @@ static int rockchip_drm_load(struct drm_device *drm_dev, unsigned long flags)
 
 	ret = rockchip_drm_init_iommu(drm_dev);
 	if (ret)
-		goto err_config_cleanup;
+		goto err_kthread;
 
 	/* Try to bind all sub drivers. */
 	ret = component_bind_all(dev, drm_dev);
@@ -257,6 +276,8 @@ err_unbind:
 	component_unbind_all(dev, drm_dev);
 err_iommu_cleanup:
 	rockchip_iommu_cleanup(drm_dev);
+err_kthread:
+	kthread_stop(private->commit.thread);
 err_config_cleanup:
 	drm_mode_config_cleanup(drm_dev);
 	drm_dev->dev_private = NULL;

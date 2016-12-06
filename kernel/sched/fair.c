@@ -656,7 +656,6 @@ static u64 sched_vslice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 }
 
 #ifdef CONFIG_SMP
-static bool cpu_overutilized(int cpu);
 static int select_idle_sibling(struct task_struct *p, int cpu);
 static unsigned long task_h_load(struct task_struct *p);
 
@@ -4229,6 +4228,8 @@ static inline void hrtick_update(struct rq *rq)
 }
 #endif
 
+static bool cpu_overutilized(int cpu);
+
 /*
  * The enqueue_task method is called before nr_running is
  * increased. Here we update the fair scheduling stats and
@@ -4239,7 +4240,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 {
 	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &p->se;
-	int __maybe_unused task_new = !(flags & ENQUEUE_WAKEUP);
+	int task_new = !(flags & ENQUEUE_WAKEUP);
 
 	for_each_sched_entity(se) {
 		if (se->on_rq)
@@ -4273,11 +4274,9 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 
 	if (!se) {
 		add_nr_running(rq, 1);
-#ifdef CONFIG_SMP
 		if (!task_new && !rq->rd->overutilized &&
 		    cpu_overutilized(rq->cpu))
 			rq->rd->overutilized = true;
-#endif
 	}
 	hrtick_update(rq);
 }
@@ -5824,9 +5823,7 @@ again:
 	if (hrtick_enabled(rq))
 		hrtick_start_fair(rq, p);
 
-#ifdef CONFIG_SMP
 	rq->misfit_task = !task_fits_max(p, rq->cpu);
-#endif
 
 	return p;
 simple:
@@ -5849,9 +5846,7 @@ simple:
 	if (hrtick_enabled(rq))
 		hrtick_start_fair(rq, p);
 
-#ifdef CONFIG_SMP
 	rq->misfit_task = !task_fits_max(p, rq->cpu);
-#endif
 
 	return p;
 
@@ -8582,12 +8577,10 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
 	if (static_branch_unlikely(&sched_numa_balancing))
 		task_tick_numa(rq, curr);
 
-#ifdef CONFIG_SMP
 	if (!rq->rd->overutilized && cpu_overutilized(task_cpu(curr)))
 		rq->rd->overutilized = true;
 
 	rq->misfit_task = !task_fits_max(curr, rq->cpu);
-#endif
 }
 
 /*

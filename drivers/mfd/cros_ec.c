@@ -17,9 +17,7 @@
  * battery charging and regulator control, firmware update.
  */
 
-#ifdef CONFIG_ACPI
 #include <linux/acpi.h>
-#endif
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/mfd/core.h>
@@ -356,7 +354,7 @@ int cros_ec_suspend(struct cros_ec_device *ec_dev)
 	int ret;
 	u8 sleep_event;
 
-	if (!pm_suspend_via_firmware()) {
+	if (!acpi_disabled && !pm_suspend_via_firmware()) {
 		sleep_event = HOST_SLEEP_EVENT_S0IX_SUSPEND;
 #ifdef CONFIG_ACPI
 		/* Clearing the GPE status for any pending event */
@@ -395,7 +393,7 @@ int cros_ec_resume(struct cros_ec_device *ec_dev)
 	int ret;
 	u8 sleep_event;
 
-	sleep_event = pm_suspend_via_firmware() ?
+	sleep_event = (acpi_disabled || pm_suspend_via_firmware()) ?
 			HOST_SLEEP_EVENT_S3_RESUME :
 			HOST_SLEEP_EVENT_S0IX_RESUME;
 

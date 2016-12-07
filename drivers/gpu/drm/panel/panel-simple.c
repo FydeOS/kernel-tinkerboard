@@ -566,6 +566,34 @@ static const struct panel_desc avic_tm070ddh03 = {
 	},
 };
 
+static const struct drm_display_mode boe_nv101wxmn51_mode = {
+	.clock = 71900,
+	.hdisplay = 1280,
+	.hsync_start = 1280 + 48,
+	.hsync_end = 1280 + 48 + 32,
+	.htotal = 1280 + 48 + 32 + 80,
+	.vdisplay = 800,
+	.vsync_start = 800 + 3,
+	.vsync_end = 800 + 3 + 5,
+	.vtotal = 800 + 3 + 5 + 24,
+	.vrefresh = 60,
+};
+
+static const struct panel_desc boe_nv101wxmn51 = {
+	.modes = &boe_nv101wxmn51_mode,
+	.num_modes = 1,
+	.bpc = 8,
+	.size = {
+		.width = 217,
+		.height = 136,
+	},
+	.delay = {
+		.prepare = 210,
+		.enable = 50,
+		.unprepare = 160,
+	},
+};
+
 static const struct drm_display_mode chunghwa_claa101wa01a_mode = {
 	.clock = 72070,
 	.hdisplay = 1366,
@@ -1179,6 +1207,9 @@ static const struct of_device_id platform_of_match[] = {
 	}, {
 		.compatible = "avic,tm070ddh03",
 		.data = &avic_tm070ddh03,
+	}, {
+		.compatible = "boe,nv101wxmn51",
+		.data = &boe_nv101wxmn51,
 	}, {
 		.compatible = "chunghwa,claa101wa01a",
 		.data = &chunghwa_claa101wa01a

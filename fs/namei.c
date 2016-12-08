@@ -875,12 +875,17 @@ int sysctl_protected_hardlinks __read_mostly = 1;
 int nameidata_set_temporary(const char __user *dir_name)
 {
 	struct nameidata *tmp;
+	struct filename *name;
 
 	tmp = kmalloc(sizeof(*tmp), GFP_KERNEL);
 	if (unlikely(!tmp))
 		return -ENOMEM;
-	set_nameidata(tmp, AT_FDCWD,
-		      getname_flags(dir_name, LOOKUP_FOLLOW, NULL));
+	name = getname_flags(dir_name, LOOKUP_FOLLOW, NULL);
+	if (IS_ERR(name)) {
+		kfree(tmp);
+		return PTR_ERR(name);
+	}
+	set_nameidata(tmp, AT_FDCWD, name);
 	return 0;
 }
 

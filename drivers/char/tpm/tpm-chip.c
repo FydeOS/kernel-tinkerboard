@@ -302,6 +302,8 @@ static int tpm_shutdown_notify(struct notifier_block *nb,
 				unsigned long unused, void *unused2)
 {
 	struct tpm_chip *chip = container_of(nb, struct tpm_chip, shutdown_nb);
+	if (chip->flags & TPM_CHIP_FLAG_TPM2)
+		tpm2_shutdown(chip, TPM2_SU_CLEAR);
 	dev_dbg(&chip->dev, "acquiring shutdown lock\n");
 	mutex_lock(&chip->tpm_mutex);
 	dev_dbg(&chip->dev, "acquired shutdown lock\n");

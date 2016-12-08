@@ -121,7 +121,7 @@ struct clk *rockchip_clk_register_ddrclk(const char *name, int flags,
 	init.num_parents = num_parents;
 
 	init.flags = flags;
-	init.flags |= CLK_SET_RATE_NO_REPARENT;
+	init.flags |= CLK_SET_RATE_NO_REPARENT | CLK_GET_RATE_NOCACHE;
 
 	switch (ddr_flag) {
 	case ROCKCHIP_DDRCLK_SIP:

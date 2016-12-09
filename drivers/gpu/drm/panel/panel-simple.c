@@ -567,15 +567,15 @@ static const struct panel_desc avic_tm070ddh03 = {
 };
 
 static const struct drm_display_mode boe_nv101wxmn51_mode = {
-	.clock = 71900,
+	.clock = 72728,
 	.hdisplay = 1280,
 	.hsync_start = 1280 + 48,
 	.hsync_end = 1280 + 48 + 32,
-	.htotal = 1280 + 48 + 32 + 80,
+	.htotal = 1280 + 48 + 32 + 83,
 	.vdisplay = 800,
 	.vsync_start = 800 + 3,
 	.vsync_end = 800 + 3 + 5,
-	.vtotal = 800 + 3 + 5 + 24,
+	.vtotal = 800 + 3 + 5 + 32,
 	.vrefresh = 60,
 };
 

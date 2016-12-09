@@ -1083,7 +1083,7 @@ i2c_new_device(struct i2c_adapter *adap, struct i2c_board_info const *info)
 	client->dev.type = &i2c_client_type;
 	client->dev.of_node = info->of_node;
 	client->dev.fwnode = info->fwnode;
-
+	device_enable_async_suspend(&client->dev);
 	i2c_dev_set_name(adap, client);
 	status = device_register(&client->dev);
 	if (status)

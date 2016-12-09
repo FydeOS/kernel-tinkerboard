@@ -33,4 +33,7 @@ int mtk_drm_crtc_create(struct drm_device *drm_dev,
 void mtk_drm_crtc_plane_update(struct drm_crtc *crtc, struct drm_plane *plane,
 			       struct mtk_plane_pending_state *pending);
 
+void mtk_drm_crtc_cursor_update(struct drm_crtc *crtc, struct drm_plane *plane,
+				struct drm_plane_state *plane_state);
+
 #endif /* MTK_DRM_CRTC_H */

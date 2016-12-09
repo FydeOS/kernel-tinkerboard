@@ -384,6 +384,33 @@ void mtk_drm_crtc_plane_update(struct drm_crtc *crtc, struct drm_plane *plane,
 	mtk_ddp_comp_layer_config(ovl, plane_index, pending, cmdq_handle);
 }
 
+void mtk_drm_crtc_cursor_update(struct drm_crtc *crtc, struct drm_plane *plane,
+				struct drm_plane_state *plane_state)
+{
+	struct mtk_drm_private *priv = crtc->dev->dev_private;
+	struct mtk_crtc_state *mtk_crtc_state = to_mtk_crtc_state(crtc->state);
+	struct mtk_drm_crtc *mtk_crtc = to_mtk_crtc(crtc);
+	struct device *gce_dev = &priv->gce_pdev->dev;
+	const struct drm_plane_helper_funcs *plane_helper_funcs =
+			plane->helper_private;
+
+	if (!mtk_crtc->enabled)
+		return;
+
+	mutex_lock(&priv->hw_lock);
+
+	cmdq_rec_create(gce_dev, mtk_crtc->cmdq_engine_flag,
+			&mtk_crtc_state->cmdq_handle);
+	cmdq_rec_clear_event(mtk_crtc_state->cmdq_handle,
+			     mtk_crtc->cmdq_event);
+	cmdq_rec_wait(mtk_crtc_state->cmdq_handle, mtk_crtc->cmdq_event);
+	plane_helper_funcs->atomic_update(plane, plane_state);
+	cmdq_rec_flush_async(mtk_crtc_state->cmdq_handle);
+	cmdq_rec_destroy(mtk_crtc_state->cmdq_handle);
+
+	mutex_unlock(&priv->hw_lock);
+}
+
 static void mtk_drm_crtc_atomic_flush(struct drm_crtc *crtc,
 				      struct drm_crtc_state *old_crtc_state)
 {

@@ -507,7 +507,7 @@ pvr_buffer_sync_append_start(struct pvr_buffer_sync_context *ctx,
 	check_data = pvr_buffer_sync_check_fences_create(ctx->fence_ctx,
 							 data->nr_pmrs,
 							 data->pmrs,
-							 pmr_flags);
+							 data->pmr_flags);
 	if (!check_data) {
 		err = -ENOMEM;
 		goto err_pmrs_unlock;

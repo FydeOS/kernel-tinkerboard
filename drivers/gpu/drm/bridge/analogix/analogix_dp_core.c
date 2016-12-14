@@ -119,7 +119,7 @@ int analogix_dp_enable_psr(struct device *dev)
 	psr_vsc.DB0 = 0;
 	psr_vsc.DB1 = EDP_VSC_PSR_STATE_ACTIVE | EDP_VSC_PSR_CRC_VALUES_VALID;
 
-	return analogix_dp_send_psr_spd(dp, &psr_vsc);
+	return analogix_dp_send_psr_spd(dp, &psr_vsc, true);
 }
 EXPORT_SYMBOL_GPL(analogix_dp_enable_psr);
 
@@ -146,7 +146,7 @@ int analogix_dp_disable_psr(struct device *dev)
 	if (ret != 1)
 		dev_err(dp->dev, "Failed to set DP Power0 %d\n", ret);
 
-	return analogix_dp_send_psr_spd(dp, &psr_vsc);
+	return analogix_dp_send_psr_spd(dp, &psr_vsc, false);
 }
 EXPORT_SYMBOL_GPL(analogix_dp_disable_psr);
 

@@ -446,7 +446,7 @@ static u32 rk_tsadcv2_temp_to_code(const struct chip_tsadc_table *table,
 
 exit:
 	pr_err("%s: invalid temperature, temp=%d error=%d\n",
-		__func__, temp, error);
+	       __func__, temp, error);
 	return error;
 }
 
@@ -497,8 +497,7 @@ static int rk_tsadcv2_code_to_temp(const struct chip_tsadc_table *table,
 		}
 		break;
 	default:
-		pr_err("%s: invalid conversion table, mode=%d\n",
-			__func__, table->mode);
+		pr_err("%s: unknown table mode: %d\n", __func__, table->mode);
 		return -EINVAL;
 	}
 

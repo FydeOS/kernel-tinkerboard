@@ -1832,7 +1832,7 @@ void xhci_mem_cleanup(struct xhci_hcd *xhci)
 	int size;
 	int i, j, num_ports;
 
-	del_timer_sync(&xhci->cmd_timer);
+	cancel_delayed_work_sync(&xhci->cmd_timer);
 
 	/* Free the Event Ring Segment Table and the actual Event Ring */
 	size = sizeof(struct xhci_erst_entry)*(xhci->erst.num_entries);
@@ -2398,9 +2398,9 @@ int xhci_mem_init(struct xhci_hcd *xhci, gfp_t flags)
 
 	INIT_LIST_HEAD(&xhci->cmd_list);
 
-	/* init command timeout timer */
-	setup_timer(&xhci->cmd_timer, xhci_handle_command_timeout,
-		    (unsigned long)xhci);
+	/* init command timeout work */
+	INIT_DELAYED_WORK(&xhci->cmd_timer, xhci_handle_command_timeout);
+	init_completion(&xhci->cmd_ring_stop_completion);
 
 	page_size = readl(&xhci->op_regs->page_size);
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init,
@@ -2439,7 +2439,7 @@ int xhci_mem_init(struct xhci_hcd *xhci, gfp_t flags)
 	 * "physically contiguous and 64-byte (cache line) aligned".
 	 */
 	xhci->dcbaa = dma_alloc_coherent(dev, sizeof(*xhci->dcbaa), &dma,
-			GFP_KERNEL);
+			flags);
 	if (!xhci->dcbaa)
 		goto fail;
 	memset(xhci->dcbaa, 0, sizeof *(xhci->dcbaa));
@@ -2535,7 +2535,7 @@ int xhci_mem_init(struct xhci_hcd *xhci, gfp_t flags)
 
 	xhci->erst.entries = dma_alloc_coherent(dev,
 			sizeof(struct xhci_erst_entry) * ERST_NUM_SEGS, &dma,
-			GFP_KERNEL);
+			flags);
 	if (!xhci->erst.entries)
 		goto fail;
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init,

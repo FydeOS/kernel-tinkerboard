@@ -603,6 +603,7 @@ int pd_register_notify_to_dmc(struct devfreq *devfreq)
 				  DEVFREQ_TRANSITION_NOTIFIER);
 	return 0;
 }
+EXPORT_SYMBOL(pd_register_notify_to_dmc);
 
 static int rockchip_pm_domain_probe(struct platform_device *pdev)
 {

@@ -72,6 +72,7 @@ unsigned int units = 1000000;	/* MHz etc */
 unsigned int genuine_intel;
 unsigned int has_invariant_tsc;
 unsigned int do_nhm_platform_info;
+unsigned int no_MSR_MISC_PWR_MGMT;
 unsigned int extra_msr_offset32;
 unsigned int extra_msr_offset64;
 unsigned int extra_delta_offset32;
@@ -311,7 +312,7 @@ int get_msr(int cpu, off_t offset, unsigned long long *msr)
 	retval = pread(get_msr_fd(cpu), msr, sizeof(*msr), offset);
 
 	if (retval != sizeof *msr)
-		err(-1, "msr %d offset 0x%llx read failed", cpu, (unsigned long long)offset);
+		err(-1, "cpu%d: msr offset 0x%llx read failed", cpu, (unsigned long long)offset);
 
 	return 0;
 }
@@ -2151,6 +2152,8 @@ void check_permissions()
  * MSR_PLATFORM_INFO               0x000000ce
  * MSR_NHM_SNB_PKG_CST_CFG_CTL     0x000000e2
  *
+ * MSR_MISC_PWR_MGMT               0x000001aa
+ *
  * MSR_PKG_C3_RESIDENCY            0x000003f8
  * MSR_PKG_C6_RESIDENCY            0x000003f9
  * MSR_CORE_C3_RESIDENCY           0x000003fc
@@ -2204,11 +2207,13 @@ int probe_nhm_msrs(unsigned int family, unsigned int model)
 		pkg_cstate_limits = hsw_pkg_cstate_limits;
 		break;
 	case 0x37:	/* BYT */
+		no_MSR_MISC_PWR_MGMT = 1;
 	case 0x4D:	/* AVN */
 		pkg_cstate_limits = slv_pkg_cstate_limits;
 		break;
 	case 0x4C:	/* AMT */
 		pkg_cstate_limits = amt_pkg_cstate_limits;
+		no_MSR_MISC_PWR_MGMT = 1;
 		break;
 	case 0x57:	/* PHI */
 		pkg_cstate_limits = phi_pkg_cstate_limits;
@@ -3156,6 +3161,9 @@ void decode_misc_pwr_mgmt_msr(void)
 	unsigned long long msr;
 
 	if (!do_nhm_platform_info)
+		return;
+
+	if (no_MSR_MISC_PWR_MGMT)
 		return;
 
 	if (!get_msr(base_cpu, MSR_MISC_PWR_MGMT, &msr))

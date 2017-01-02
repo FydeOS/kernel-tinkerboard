@@ -81,8 +81,10 @@ struct skl_sst {
 	/* multi-core */
 	struct skl_dsp_cores cores;
 
-	/* tplg manifest */
-	struct skl_dfw_manifest manifest;
+	/* library info */
+	struct skl_lib_info  lib_info[SKL_MAX_LIB];
+	int lib_count;
+
 };
 
 struct skl_ipc_init_instance_msg {

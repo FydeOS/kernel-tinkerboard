@@ -1,5 +1,5 @@
 /*
- * Google Gru-Bob Rev 0~1 board device tree source
+ * Google Gru-Bob Rev 2+ board device tree source
  *
  * Copyright 2016 Google, Inc
  *
@@ -47,11 +47,10 @@
 
 / {
 	model = "Google Bob";
-	compatible = "google,bob-rev1", "google,bob-rev0",
+	compatible = "google,bob-rev11", "google,bob-rev10",
+		     "google,bob-rev9", "google,bob-rev8",
+		     "google,bob-rev7", "google,bob-rev6",
+		     "google,bob-rev5", "google,bob-rev4",
+		     "google,bob-rev3", "google,bob-rev2",
 		     "google,bob", "google,gru", "rockchip,rk3399";
-};
-
-&pp3000_sd_slot {
-	/delete-property/ enable-active-high;
-	gpio = <&gpio4 29 GPIO_ACTIVE_LOW>;
 };

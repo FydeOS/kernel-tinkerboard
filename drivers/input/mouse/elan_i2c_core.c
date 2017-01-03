@@ -624,8 +624,14 @@ static ssize_t elan_sysfs_update_fw(struct device *dev,
 	error = request_firmware(&fw, fw_name, dev);
 	kfree(fw_name);
 	if (error) {
-		dev_err(dev, "failed to request firmware: %d\n", error);
-		return error;
+		dev_info(dev, "failed to request firmware: %d\n", error);
+		dev_info(dev, "Falling back to 'elan_i2c.bin' instead\n");
+		error = request_firmware(&fw, "elan_i2c.bin", dev);
+		if (error) {
+			dev_info(dev, "failed to request firmware: %d\n",
+				error);
+			return error;
+		}
 	}
 
 	/* Firmware file must match signature data */

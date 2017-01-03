@@ -733,9 +733,15 @@ static int elants_i2c_fw_update(struct elants_data *ts)
 	error = request_firmware(&fw, fw_name, &client->dev);
 	kfree(fw_name);
 	if (error) {
-		dev_err(&client->dev, "failed to request firmware: %d\n",
+		dev_info(&client->dev, "failed to request firmware: %d\n",
 			error);
-		return error;
+		dev_info(&client->dev, "Falling back to 'elants_i2c.bin' instead\n");
+		error = request_firmware(&fw, "elants_i2c.bin", &client->dev);
+		if (error) {
+			dev_info(&client->dev, "failed to request firmware: %d\n",
+				error);
+			return error;
+		}
 	}
 
 	if (fw->size % ELAN_FW_PAGESIZE) {

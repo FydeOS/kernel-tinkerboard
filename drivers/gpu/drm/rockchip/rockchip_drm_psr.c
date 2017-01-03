@@ -41,7 +41,7 @@ struct psr_drv {
 
 	struct input_handler    input_handler;
 
-	void (*set)(struct drm_encoder *encoder, bool enable);
+	int (*set)(struct drm_encoder *encoder, bool enable);
 };
 
 static struct psr_drv *find_psr_by_crtc(struct drm_crtc *crtc)
@@ -98,19 +98,25 @@ static void psr_set_state_locked(struct psr_drv *psr, enum psr_state state)
 		return;
 	}
 
-	psr->state = state;
-
 	/* Actually commit the state change to hardware */
-	switch (psr->state) {
+	switch (state) {
 	case PSR_ENABLE:
-		psr->set(psr->encoder, true);
+		if (psr->set(psr->encoder, true))
+			return;
 		break;
 
 	case PSR_DISABLE:
 	case PSR_FLUSH:
-		psr->set(psr->encoder, false);
+		if (psr->set(psr->encoder, false))
+			return;
 		break;
+
+	default:
+		pr_err("%s: Unknown state %d\n", __func__, state);
+		return;
 	}
+
+	psr->state = state;
 }
 
 static void psr_set_state(struct psr_drv *psr, enum psr_state state)
@@ -336,7 +342,7 @@ static const struct input_device_id psr_ids[] = {
  * Zero on success, negative errno on failure.
  */
 int rockchip_drm_psr_register(struct drm_encoder *encoder,
-			void (*psr_set)(struct drm_encoder *, bool enable))
+			int (*psr_set)(struct drm_encoder *, bool enable))
 {
 	struct rockchip_drm_private *drm_drv = encoder->dev->dev_private;
 	struct psr_drv *psr;

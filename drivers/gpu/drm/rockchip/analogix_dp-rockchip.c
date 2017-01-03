@@ -68,7 +68,7 @@ struct rockchip_dp_device {
 	struct analogix_dp_plat_data plat_data;
 };
 
-static void analogix_dp_psr_set(struct drm_encoder *encoder, bool enabled)
+static int analogix_dp_psr_set(struct drm_encoder *encoder, bool enabled)
 {
 	struct rockchip_dp_device *dp = to_dp(encoder);
 	struct drm_crtc *crtc = dp->encoder.crtc;
@@ -78,7 +78,7 @@ static void analogix_dp_psr_set(struct drm_encoder *encoder, bool enabled)
 	dev_dbg(dp->dev, "%s PSR...\n", enabled ? "enable" : "disable");
 
 	if (!crtc)
-		return;
+		return -EINVAL;
 
 	vact_end = crtc->mode.vtotal - crtc->mode.vsync_start +
 			crtc->mode.vdisplay;
@@ -87,13 +87,13 @@ static void analogix_dp_psr_set(struct drm_encoder *encoder, bool enabled)
 					  PSR_WAIT_LINE_FLAG_TIMEOUT_MS);
 	if (ret) {
 		dev_err(dp->dev, "line flag interrupt did not arrive\n");
-		return;
+		return -ETIMEDOUT;
 	}
 
 	if (enabled)
-		analogix_dp_enable_psr(dp->dev);
+		return analogix_dp_enable_psr(dp->dev);
 	else
-		analogix_dp_disable_psr(dp->dev);
+		return analogix_dp_disable_psr(dp->dev);
 }
 
 static int rockchip_dp_pre_init(struct rockchip_dp_device *dp)

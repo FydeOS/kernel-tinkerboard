@@ -182,7 +182,7 @@ chromiumos_super_block_get(struct super_block *sb)
 
 static void chromiumos_free_mark(struct fsnotify_mark *mark)
 {
-	iput(mark->inode);
+	iput(chromiumos_to_inode_mark(mark)->inode);
 	kfree(mark);
 }
 

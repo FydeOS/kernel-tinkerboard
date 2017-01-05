@@ -698,9 +698,6 @@ static int analogix_dp_full_link_train(struct analogix_dp_device *dp,
 	if (dp->link_train.link_rate > max_rate)
 		dp->link_train.link_rate = max_rate;
 
-	/* All DP analog module power up */
-	analogix_dp_set_analog_power_down(dp, POWER_ALL, 0);
-
 	dp->link_train.lt_state = START;
 
 	/* Process here */
@@ -1186,6 +1183,8 @@ static int analogix_dp_set_bridge(struct analogix_dp_device *dp)
 		goto out_dp_clk_pre;
 	}
 
+	analogix_dp_set_analog_power_down(dp, POWER_ALL, 0);
+
 	if (dp->plat_data->power_on)
 		dp->plat_data->power_on(dp->plat_data);
 
@@ -1215,6 +1214,7 @@ out_dp_init:
 	phy_power_off(dp->phy);
 	if (dp->plat_data->power_off)
 		dp->plat_data->power_off(dp->plat_data);
+	analogix_dp_set_analog_power_down(dp, POWER_ALL, 1);
 	clk_disable_unprepare(dp->clock);
 out_dp_clk_pre:
 	pm_runtime_put_sync(dp->dev);

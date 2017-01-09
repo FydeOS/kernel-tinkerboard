@@ -33,4 +33,7 @@ struct fwnode_handle *fwnode_get_next_child_node(struct fwnode_handle *node,
 	for (child = fwnode_get_next_child_node(node, NULL); child; \
 	     child = fwnode_get_next_child_node(node, child))
 
+struct fwnode_handle *fwnode_get_named_child_node(struct fwnode_handle *node,
+						  const char *childname);
+
 #endif

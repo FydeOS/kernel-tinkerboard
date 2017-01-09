@@ -1572,7 +1572,7 @@ static int qcom_spmi_regulator_probe(struct platform_device *pdev)
 		vreg->desc.supply_name = reg->supply;
 		vreg->desc.of_match = reg->name;
 		vreg->desc.of_parse_cb = spmi_regulator_of_parse;
-		vreg->desc.of_map_mode = spmi_regulator_of_map_mode;
+		vreg->desc.map_mode = spmi_regulator_of_map_mode;
 
 		ret = spmi_regulator_match(vreg, reg->force_type);
 		if (ret)

@@ -100,8 +100,8 @@ static void of_get_regulation_constraints(struct device_node *np,
 	}
 
 	if (!of_property_read_u32(np, "regulator-initial-mode", &pval)) {
-		if (desc && desc->of_map_mode) {
-			ret = desc->of_map_mode(pval);
+		if (desc && desc->map_mode) {
+			ret = desc->map_mode(pval);
 			if (ret == -EINVAL)
 				pr_err("%s: invalid mode %u\n", np->name, pval);
 			else
@@ -139,8 +139,8 @@ static void of_get_regulation_constraints(struct device_node *np,
 
 		if (!of_property_read_u32(suspend_np, "regulator-mode",
 					  &pval)) {
-			if (desc && desc->of_map_mode) {
-				ret = desc->of_map_mode(pval);
+			if (desc && desc->map_mode) {
+				ret = desc->map_mode(pval);
 				if (ret == -EINVAL)
 					pr_err("%s: invalid mode %u\n",
 					       np->name, pval);

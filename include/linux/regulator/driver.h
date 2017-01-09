@@ -273,7 +273,8 @@ enum regulator_type {
  * @enable_time: Time taken for initial enable of regulator (in uS).
  * @off_on_delay: guard time (in uS), before re-enabling a regulator
  *
- * @of_map_mode: Maps a hardware mode defined in a DeviceTree to a standard mode
+ * @map_mode: Maps a hardware mode defined in device properties to a standard
+ *            mode.
  */
 struct regulator_desc {
 	const char *name;
@@ -321,7 +322,7 @@ struct regulator_desc {
 
 	unsigned int off_on_delay;
 
-	unsigned int (*of_map_mode)(unsigned int mode);
+	unsigned int (*map_mode)(unsigned int mode);
 };
 
 /**

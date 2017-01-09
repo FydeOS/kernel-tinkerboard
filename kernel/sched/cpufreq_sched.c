@@ -41,6 +41,9 @@ DEFINE_PER_CPU(struct sched_capacity_reqs, cpu_sched_capacity_reqs);
  * @task: worker thread for dvfs transition that may block/sleep
  * @irq_work: callback used to wake up worker thread
  * @requested_freq: last frequency requested by the sched governor
+ * @started_mutex: Mutex to protect "started".  Always grabbed _after_
+ *                 policy->rwsem if both are grabbed.
+ * @started: true if we've been started; false otherwise
  *
  * struct gov_data is the per-policy cpufreq_sched-specific data structure. A
  * per-policy instance of it is created when the cpufreq_sched governor receives
@@ -58,6 +61,9 @@ struct gov_data {
 	struct task_struct *task;
 	struct irq_work irq_work;
 	unsigned int requested_freq;
+
+	struct mutex started_mutex;
+	bool started;
 };
 
 static void cpufreq_sched_try_driver_target(struct cpufreq_policy *policy,
@@ -65,14 +71,22 @@ static void cpufreq_sched_try_driver_target(struct cpufreq_policy *policy,
 {
 	struct gov_data *gd = policy->governor_data;
 
-	/* avoid race with cpufreq_sched_stop */
+	/* grab the rwsem for old times sake */
 	if (!down_write_trylock(&policy->rwsem))
 		return;
 
-	__cpufreq_driver_target(policy, freq, CPUFREQ_RELATION_L);
+	/* avoid race with cpufreq_sched_stop */
+	mutex_lock(&gd->started_mutex);
 
-	gd->up_throttle = ktime_add_ns(ktime_get(), gd->up_throttle_nsec);
-	gd->down_throttle = ktime_add_ns(ktime_get(), gd->down_throttle_nsec);
+	if (gd->started) {
+		__cpufreq_driver_target(policy, freq, CPUFREQ_RELATION_L);
+		gd->up_throttle = ktime_add_ns(ktime_get(),
+					       gd->up_throttle_nsec);
+		gd->down_throttle = ktime_add_ns(ktime_get(),
+						 gd->down_throttle_nsec);
+	}
+
+	mutex_unlock(&gd->started_mutex);
 	up_write(&policy->rwsem);
 }
 
@@ -282,6 +296,8 @@ static int cpufreq_sched_policy_init(struct cpufreq_policy *policy)
 	if (!gd)
 		return -ENOMEM;
 
+	mutex_init(&gd->started_mutex);
+
 	gd->up_throttle_nsec = policy->cpuinfo.transition_latency ?
 			    policy->cpuinfo.transition_latency :
 			    THROTTLE_UP_NSEC;
@@ -342,10 +358,16 @@ static int cpufreq_sched_policy_exit(struct cpufreq_policy *policy)
 
 static int cpufreq_sched_start(struct cpufreq_policy *policy)
 {
+	struct gov_data *gd = policy->governor_data;
 	int cpu;
+
+	mutex_lock(&gd->started_mutex);
 
 	for_each_cpu(cpu, policy->cpus)
 		per_cpu(enabled, cpu) = 1;
+
+	gd->started = true;
+	mutex_unlock(&gd->started_mutex);
 
 	return 0;
 }
@@ -367,10 +389,16 @@ static void cpufreq_sched_limits(struct cpufreq_policy *policy)
 
 static int cpufreq_sched_stop(struct cpufreq_policy *policy)
 {
+	struct gov_data *gd = policy->governor_data;
 	int cpu;
+
+	mutex_lock(&gd->started_mutex);
+	gd->started = false;
 
 	for_each_cpu(cpu, policy->cpus)
 		per_cpu(enabled, cpu) = 0;
+
+	mutex_unlock(&gd->started_mutex);
 
 	return 0;
 }

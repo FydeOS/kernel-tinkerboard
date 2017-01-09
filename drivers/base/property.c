@@ -547,6 +547,28 @@ out:
 EXPORT_SYMBOL_GPL(fwnode_property_match_string);
 
 /**
+ * fwnode_get_next_child_node - Return the next child node handle for a device
+ * @node: Node to find the next child node for.
+ * @child: Handle to one of the device's child nodes or a null handle.
+ */
+struct fwnode_handle *fwnode_get_next_child_node(struct fwnode_handle *node,
+						 struct fwnode_handle *child)
+{
+	if (IS_ENABLED(CONFIG_OF) && is_of_node(node)) {
+		struct device_node *np;
+
+		np = of_get_next_available_child(to_of_node(node),
+						   to_of_node(child));
+		if (np)
+			return &np->fwnode;
+	} else if (IS_ENABLED(CONFIG_ACPI) && is_acpi_node(node)) {
+		return acpi_get_next_subnode(node, child);
+	}
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(fwnode_get_next_child_node);
+
+/**
  * device_get_next_child_node - Return the next child node handle for a device
  * @dev: Device to find the next child node for.
  * @child: Handle to one of the device's child nodes or a null handle.
@@ -554,16 +576,7 @@ EXPORT_SYMBOL_GPL(fwnode_property_match_string);
 struct fwnode_handle *device_get_next_child_node(struct device *dev,
 						 struct fwnode_handle *child)
 {
-	if (IS_ENABLED(CONFIG_OF) && dev->of_node) {
-		struct device_node *node;
-
-		node = of_get_next_available_child(dev->of_node, to_of_node(child));
-		if (node)
-			return &node->fwnode;
-	} else if (IS_ENABLED(CONFIG_ACPI)) {
-		return acpi_get_next_subnode(dev->fwnode, child);
-	}
-	return NULL;
+	return fwnode_get_next_child_node(dev_fwnode(dev), child);
 }
 EXPORT_SYMBOL_GPL(device_get_next_child_node);
 

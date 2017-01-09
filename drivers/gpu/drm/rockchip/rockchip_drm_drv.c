@@ -96,6 +96,7 @@ void rockchip_drm_disable_dmc(struct rockchip_drm_private *priv)
 }
 EXPORT_SYMBOL(rockchip_drm_disable_dmc);
 
+#ifdef CONFIG_ARM_RK3399_DMC_DEVFREQ
 static int rockchip_initialize_devfreq(struct device *dev,
 				       struct rockchip_drm_private *priv)
 {
@@ -127,6 +128,13 @@ static int rockchip_initialize_devfreq(struct device *dev,
 	priv->devfreq_event_dev = edev;
 	return 0;
 }
+#else
+static int rockchip_initialize_devfreq(struct device *dev,
+				       struct rockchip_drm_private *priv)
+{
+	return 0;
+}
+#endif
 
 int rockchip_register_crtc_funcs(struct drm_crtc *crtc,
 				 const struct rockchip_crtc_funcs *crtc_funcs)

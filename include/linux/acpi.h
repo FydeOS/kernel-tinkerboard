@@ -810,7 +810,7 @@ int acpi_node_prop_read(struct fwnode_handle *fwnode, const char *propname,
 int acpi_dev_prop_read(struct acpi_device *adev, const char *propname,
 		       enum dev_prop_type proptype, void *val, size_t nval);
 
-struct fwnode_handle *acpi_get_next_subnode(struct device *dev,
+struct fwnode_handle *acpi_get_next_subnode(struct fwnode_handle *node,
 					    struct fwnode_handle *subnode);
 
 struct acpi_probe_entry;
@@ -920,7 +920,8 @@ static inline int acpi_dev_prop_read(struct acpi_device *adev,
 	return -ENXIO;
 }
 
-static inline struct fwnode_handle *acpi_get_next_subnode(struct device *dev,
+static inline struct fwnode_handle *acpi_get_next_subnode(
+						struct fwnode_handle *node,
 						struct fwnode_handle *subnode)
 {
 	return NULL;

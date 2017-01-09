@@ -561,7 +561,7 @@ struct fwnode_handle *device_get_next_child_node(struct device *dev,
 		if (node)
 			return &node->fwnode;
 	} else if (IS_ENABLED(CONFIG_ACPI)) {
-		return acpi_get_next_subnode(dev, child);
+		return acpi_get_next_subnode(dev->fwnode, child);
 	}
 	return NULL;
 }

@@ -80,20 +80,31 @@ static int analogix_dp_psr_set(struct drm_encoder *encoder, bool enabled)
 	if (!crtc)
 		return -EINVAL;
 
-	vact_end = crtc->mode.vtotal - crtc->mode.vsync_start +
+	if (enabled) {
+		vact_end = crtc->mode.vtotal - crtc->mode.vsync_start +
 			crtc->mode.vdisplay;
+		ret = rockchip_drm_wait_line_flag(dp->encoder.crtc, vact_end,
+						PSR_WAIT_LINE_FLAG_TIMEOUT_MS);
+		if (ret) {
+			dev_err(dp->dev, "line flag interrupt did not arrive\n");
+			return -ETIMEDOUT;
+		}
 
-	ret = rockchip_drm_wait_line_flag(dp->encoder.crtc, vact_end,
-					  PSR_WAIT_LINE_FLAG_TIMEOUT_MS);
-	if (ret) {
-		dev_err(dp->dev, "line flag interrupt did not arrive\n");
-		return -ETIMEDOUT;
+		ret = analogix_dp_enable_psr(dp->dev);
+		if (ret) {
+			dev_err(dp->dev, "failed to enable psr %d\n", ret);
+			return ret;
+		}
+		rockchip_drm_set_win_enabled(crtc, false);
+	} else {
+		rockchip_drm_set_win_enabled(crtc, true);
+		ret = analogix_dp_disable_psr(dp->dev);
+		if (ret) {
+			dev_err(dp->dev, "failed to disable psr %d\n", ret);
+			return ret;
+		}
 	}
-
-	if (enabled)
-		return analogix_dp_enable_psr(dp->dev);
-	else
-		return analogix_dp_disable_psr(dp->dev);
+	return 0;
 }
 
 static int rockchip_dp_pre_init(struct rockchip_dp_device *dp)

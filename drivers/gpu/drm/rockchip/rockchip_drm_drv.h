@@ -105,5 +105,6 @@ int rockchip_drm_wait_line_flag(struct drm_crtc *crtc, unsigned int line_num,
 
 void rockchip_drm_enable_dmc(struct rockchip_drm_private *priv);
 void rockchip_drm_disable_dmc(struct rockchip_drm_private *priv);
+void rockchip_drm_set_win_enabled(struct drm_crtc *ctrc, bool enabled);
 
 #endif /* _ROCKCHIP_DRM_DRV_H_ */

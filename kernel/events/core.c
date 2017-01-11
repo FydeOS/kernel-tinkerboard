@@ -8646,6 +8646,7 @@ err_fd:
 	put_unused_fd(event_fd);
 	return err;
 }
+EXPORT_SYMBOL_GPL(sys_perf_event_open);
 
 /**
  * perf_event_create_kernel_counter

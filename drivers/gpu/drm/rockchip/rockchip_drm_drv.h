@@ -91,6 +91,7 @@ struct rockchip_drm_private {
 	struct drm_atomic_state *state;
 };
 
+uint32_t rockchip_drm_get_vblank_ns(struct drm_display_mode *mode);
 void rockchip_drm_atomic_work(struct kthread_work *work);
 int rockchip_register_crtc_funcs(struct drm_crtc *crtc,
 				 const struct rockchip_crtc_funcs *crtc_funcs);

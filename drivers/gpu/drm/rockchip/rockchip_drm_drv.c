@@ -78,24 +78,6 @@ void rockchip_drm_dma_detach_device(struct drm_device *drm_dev,
 	iommu_detach_device(domain, dev);
 }
 
-void rockchip_drm_enable_dmc(struct rockchip_drm_private *priv)
-{
-	if (priv->devfreq_event_dev)
-		devfreq_event_enable_edev(priv->devfreq_event_dev);
-	if (priv->devfreq)
-		devfreq_resume_device(priv->devfreq);
-}
-EXPORT_SYMBOL(rockchip_drm_enable_dmc);
-
-void rockchip_drm_disable_dmc(struct rockchip_drm_private *priv)
-{
-	if (priv->devfreq_event_dev)
-		devfreq_event_disable_edev(priv->devfreq_event_dev);
-	if (priv->devfreq)
-		devfreq_suspend_device(priv->devfreq);
-}
-EXPORT_SYMBOL(rockchip_drm_disable_dmc);
-
 #ifdef CONFIG_ARM_RK3399_DMC_DEVFREQ
 static int rockchip_initialize_devfreq(struct device *dev,
 				       struct rockchip_drm_private *priv)

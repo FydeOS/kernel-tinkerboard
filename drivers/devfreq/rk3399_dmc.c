@@ -29,7 +29,9 @@
 #include <soc/rockchip/rockchip_sip.h>
 #include <soc/rockchip/rk3399_dmc.h>
 
-#define NS_TO_CYCLE(NS, MHz)	((NS * MHz) / NSEC_PER_USEC)
+#include "rk3399_dmc_priv.h"
+
+#define NS_TO_CYCLE(NS, MHz)		((NS * MHz) / NSEC_PER_USEC)
 
 static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 				 u32 flags)
@@ -125,7 +127,7 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 		err = regulator_set_voltage(dmcfreq->vdd_center, target_volt,
 					    target_volt);
 		if (err) {
-			dev_err(dev, "Cannot to set voltage %lu uV\n",
+			dev_err(dev, "Cannot set voltage %lu uV\n",
 				target_volt);
 			goto out;
 		}
@@ -133,13 +135,20 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 
 	err = clk_set_rate(dmcfreq->dmc_clk, target_rate);
 	if (err) {
-		dev_err(dev, "Cannot to set frequency %lu (%d)\n",
-			target_rate, err);
+		dev_err(dev, "Cannot set frequency %lu (%d)\n", target_rate,
+			err);
 		regulator_set_voltage(dmcfreq->vdd_center, dmcfreq->volt,
 				      dmcfreq->volt);
 		goto out;
 	}
 
+	/*
+	 * Setting the dpll is asynchronous since clk_set_rate grabs a global
+	 * common clk lock and set_rate for the dpll takes up to one display
+	 * frame to complete. We still need to wait for the set_rate to complete
+	 * here, though, before we change voltage.
+	 */
+	rockchip_ddrclk_wait_set_rate(dmcfreq->dmc_clk);
 	/*
 	 * Check the dpll rate,
 	 * There only two result we will get,
@@ -150,8 +159,8 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 
 	/* If get the incorrect rate, set voltage to old value. */
 	if (dmcfreq->rate != target_rate) {
-		dev_err(dev, "Get wrong ddr frequency, Request frequency %lu,\
-			Current frequency %lu\n", target_rate, dmcfreq->rate);
+		dev_dbg(dev, "Got wrong frequency, Request %lu, Current %lu\n",
+			target_rate, dmcfreq->rate);
 		regulator_set_voltage(dmcfreq->vdd_center, dmcfreq->volt,
 				      dmcfreq->volt);
 		goto out;
@@ -159,7 +168,7 @@ static int rk3399_dmcfreq_target(struct device *dev, unsigned long *freq,
 		err = regulator_set_voltage(dmcfreq->vdd_center, target_volt,
 					    target_volt);
 	if (err)
-		dev_err(dev, "Cannot to set vol %lu uV\n", target_volt);
+		dev_err(dev, "Cannot set voltage %lu uV\n", target_volt);
 
 	dmcfreq->curr_opp = opp;
 out:
@@ -243,6 +252,78 @@ static __maybe_unused int rk3399_dmcfreq_resume(struct device *dev)
 static SIMPLE_DEV_PM_OPS(rk3399_dmcfreq_pm, rk3399_dmcfreq_suspend,
 			 rk3399_dmcfreq_resume);
 
+int rockchip_dmcfreq_register_clk_sync_nb(struct devfreq *devfreq,
+					struct notifier_block *nb)
+{
+	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(devfreq->dev.parent);
+	int ret;
+
+	mutex_lock(&dmcfreq->en_lock);
+	if (dmcfreq->num_sync_nb == 1 && dmcfreq->disable_count <= 0)
+		devfreq_suspend_device(devfreq);
+
+	ret = rockchip_ddrclk_register_sync_nb(dmcfreq->dmc_clk, nb);
+	if (ret == 0)
+		dmcfreq->num_sync_nb++;
+	else if (dmcfreq->num_sync_nb == 1 && dmcfreq->disable_count <= 0)
+		devfreq_resume_device(devfreq);
+
+	mutex_unlock(&dmcfreq->en_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(rockchip_dmcfreq_register_clk_sync_nb);
+
+int rockchip_dmcfreq_unregister_clk_sync_nb(struct devfreq *devfreq,
+					  struct notifier_block *nb)
+{
+	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(devfreq->dev.parent);
+	int ret;
+
+	mutex_lock(&dmcfreq->en_lock);
+	ret = rockchip_ddrclk_unregister_sync_nb(dmcfreq->dmc_clk, nb);
+	if (ret == 0) {
+		dmcfreq->num_sync_nb--;
+		if (dmcfreq->num_sync_nb == 1 && dmcfreq->disable_count <= 0)
+			devfreq_resume_device(devfreq);
+	}
+
+	mutex_unlock(&dmcfreq->en_lock);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(rockchip_dmcfreq_unregister_clk_sync_nb);
+
+int rockchip_dmcfreq_block(struct devfreq *devfreq)
+{
+	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(devfreq->dev.parent);
+
+	mutex_lock(&dmcfreq->en_lock);
+	if (dmcfreq->disable_count == 0)
+		devfreq_suspend_device(devfreq);
+
+	dmcfreq->disable_count++;
+	mutex_unlock(&dmcfreq->en_lock);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(rockchip_dmcfreq_block);
+
+int rockchip_dmcfreq_unblock(struct devfreq *devfreq)
+{
+	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(devfreq->dev.parent);
+
+	mutex_lock(&dmcfreq->en_lock);
+	dmcfreq->disable_count--;
+	if (dmcfreq->disable_count == 0)
+		devfreq_resume_device(devfreq);
+
+	WARN_ON(dmcfreq->disable_count < 0);
+	mutex_unlock(&dmcfreq->en_lock);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(rockchip_dmcfreq_unblock);
+
 static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -256,6 +337,7 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	mutex_init(&data->lock);
+	mutex_init(&data->en_lock);
 
 	data->vdd_center = devm_regulator_get(dev, "center");
 	if (IS_ERR(data->vdd_center)) {

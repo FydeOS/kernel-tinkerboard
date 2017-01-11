@@ -16,8 +16,10 @@
 #define __SOC_RK3399_DMC_H
 
 #include <linux/devfreq.h>
+#include <linux/notifier.h>
 
-#define ROCKCHIP_DMC_MIN_VBLANK_US 300
+#define DMC_MIN_SET_RATE_NS	(250 * NSEC_PER_USEC)
+#define DMC_MIN_VBLANK_NS	(DMC_MIN_SET_RATE_NS + 50 * NSEC_PER_USEC)
 
 struct rk3399_dmcfreq {
 	struct device *dev;
@@ -26,6 +28,9 @@ struct rk3399_dmcfreq {
 	struct clk *dmc_clk;
 	struct devfreq_event_dev *edev;
 	struct mutex lock;
+	struct mutex en_lock;
+	int num_sync_nb;
+	int disable_count;
 	unsigned int pd_idle;
 	unsigned int sr_idle;
 	unsigned int sr_mc_gate_idle;
@@ -45,6 +50,24 @@ struct rk3399_dmcfreq {
 	struct dev_pm_opp *curr_opp;
 };
 
+#ifdef CONFIG_ARM_RK3399_DMC_DEVFREQ
+int rockchip_dmcfreq_register_clk_sync_nb(struct devfreq *devfreq,
+					struct notifier_block *nb);
+int rockchip_dmcfreq_unregister_clk_sync_nb(struct devfreq *devfreq,
+					  struct notifier_block *nb);
+int rockchip_dmcfreq_block(struct devfreq *devfreq);
+int rockchip_dmcfreq_unblock(struct devfreq *devfreq);
 int pd_register_notify_to_dmc(struct devfreq *devfreq);
-
+#else
+static inline int rockchip_dmcfreq_register_clk_sync_nb(struct devfreq *devfreq,
+		struct notifier_block *nb) { return 0; }
+static inline int rockchip_dmcfreq_unregister_clk_sync_nb(
+		struct devfreq *devfreq,
+		struct notifier_block *nb) { return 0; }
+static inline int rockchip_dmcfreq_block(struct devfreq *devfreq) { return 0; }
+static inline int rockchip_dmcfreq_unblock(struct devfreq *devfreq)
+{ return 0; }
+static inline int pd_register_notify_to_dmc(struct devfreq *devfreq)
+{ return 0; }
+#endif
 #endif

@@ -33,6 +33,8 @@
 #include <linux/reset.h>
 #include <linux/delay.h>
 
+#include <soc/rockchip/rk3399_dmc.h>
+
 #include "rockchip_drm_drv.h"
 #include "rockchip_drm_gem.h"
 #include "rockchip_drm_fb.h"
@@ -118,7 +120,9 @@ struct vop {
 	struct drm_flip_work fb_unref_work;
 	unsigned long pending;
 
+	ktime_t line_flag_timestamp;
 	struct completion line_flag_completion;
+	struct notifier_block dmc_nb;
 
 	const struct vop_data *data;
 
@@ -603,11 +607,13 @@ err_put_pm_runtime:
 static void vop_crtc_disable(struct drm_crtc *crtc)
 {
 	struct vop *vop = to_vop(crtc);
+	struct rockchip_drm_private *priv = crtc->dev->dev_private;
 	int i;
 
 	if (!vop->is_enabled)
 		return;
 
+	rockchip_dmcfreq_unregister_clk_sync_nb(priv->devfreq, &vop->dmc_nb);
 	mutex_lock(&vop->vop_lock);
 	/*
 	 * We need to make sure that all windows are disabled before we
@@ -1113,6 +1119,7 @@ static void vop_crtc_enable(struct drm_crtc *crtc)
 	struct vop *vop = to_vop(crtc);
 	struct rockchip_crtc_state *s = to_rockchip_crtc_state(crtc->state);
 	struct drm_display_mode *adjusted_mode = &crtc->state->adjusted_mode;
+	struct rockchip_drm_private *priv = crtc->dev->dev_private;
 	u16 hsync_len = adjusted_mode->hsync_end - adjusted_mode->hsync_start;
 	u16 hdisplay = adjusted_mode->hdisplay;
 	u16 htotal = adjusted_mode->htotal;
@@ -1225,6 +1232,34 @@ static void vop_crtc_enable(struct drm_crtc *crtc)
 
 	VOP_CTRL_SET(vop, standby, 0);
 	mutex_unlock(&vop->vop_lock);
+	rockchip_dmcfreq_register_clk_sync_nb(priv->devfreq, &vop->dmc_nb);
+}
+
+static int dmc_notify(struct notifier_block *nb,
+		      unsigned long action,
+		      void *data)
+{
+	struct vop *vop = container_of(nb, struct vop, dmc_nb);
+	struct drm_crtc *crtc = &vop->crtc;
+	ktime_t *timeout = data;
+	int vact_end;
+	int ret;
+
+	if (WARN_ON(!vop->is_enabled))
+		return NOTIFY_BAD;
+
+	vact_end = crtc->mode.vtotal - crtc->mode.vsync_start +
+		   crtc->mode.vdisplay;
+	ret = rockchip_drm_wait_line_flag(crtc, vact_end, 100);
+	*timeout = ktime_add_ns(vop->line_flag_timestamp,
+				rockchip_drm_get_vblank_ns(&crtc->mode));
+	if (ret) {
+		dev_err(vop->dev, "%s: Line flag interrupt did not arrive\n",
+			__func__);
+		return NOTIFY_BAD;
+	}
+
+	return NOTIFY_STOP;
 }
 
 static void vop_crtc_atomic_flush(struct drm_crtc *crtc,
@@ -1396,6 +1431,7 @@ static irqreturn_t vop_isr(int irq, void *data)
 	}
 
 	if (active_irqs & LINE_FLAG_INTR) {
+		vop->line_flag_timestamp = ktime_get();
 		complete(&vop->line_flag_completion);
 		active_irqs &= ~LINE_FLAG_INTR;
 		ret = IRQ_HANDLED;
@@ -1785,6 +1821,7 @@ static int vop_bind(struct device *dev, struct device *master, void *data)
 	spin_lock_init(&vop->reg_lock);
 	spin_lock_init(&vop->irq_lock);
 	mutex_init(&vop->vop_lock);
+	vop->dmc_nb.notifier_call = dmc_notify;
 
 	ret = devm_request_irq(dev, vop->irq, vop_isr,
 			       IRQF_SHARED, dev_name(dev), vop);

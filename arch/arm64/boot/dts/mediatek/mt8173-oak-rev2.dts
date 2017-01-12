@@ -111,6 +111,16 @@
 	/delete-node/volume_up;
 };
 
+&gpu {
+	operating-points = <
+		253500 1000000
+		299000 1000000
+		396500 1000000
+		455000 1000000
+		494000 1130000
+	>;
+};
+
 &i2c0 {
 	rt5676: audio-codec@2c {
 		compatible = "realtek,rt5676";

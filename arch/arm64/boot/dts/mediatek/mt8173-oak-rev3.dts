@@ -117,6 +117,16 @@
 	/delete-node/volume_up;
 };
 
+&gpu {
+	mfgsys-power-supply = <&mt6397_vgpu_reg>;
+	operating-points = <
+		253500 1000000
+		299000 1000000
+		396500 1000000
+		455000 1000000
+	>;
+};
+
 &i2c0 {
 	rt5676: audio-codec@2c {
 		compatible = "realtek,rt5676";

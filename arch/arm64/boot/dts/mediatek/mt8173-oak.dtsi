@@ -157,6 +157,19 @@
 	status = "okay";
 };
 
+&gpu {
+	mfgsys-power-supply = <&da9211_vgpu_reg>;
+	operating-points = <
+		253500 1000000
+		299000 1000000
+		396500 1000000
+		455000 1000000
+		494000 1130000
+		598000 1130000
+	>;
+	status = "okay";
+};
+
 &hdmi0 {
 	status = "okay";
 

@@ -25,7 +25,8 @@
 #include "skl-sst-ipc.h"
 
 #define BXT_BASEFW_TIMEOUT	3000
-#define BXT_INIT_TIMEOUT	500
+#define BXT_INIT_TIMEOUT	300
+#define BXT_ROM_INIT_TIMEOUT	70
 #define BXT_IPC_PURGE_FW	0x01004000
 
 #define BXT_ROM_INIT		0x5
@@ -41,6 +42,8 @@
 #define BXT_BASE_FW_MODULE_ID 0
 
 #define BXT_ADSP_FW_BIN_HDR_OFFSET 0x2000
+
+#define BXT_FW_ROM_INIT_RETRY 3
 
 static unsigned int bxt_get_errorcode(struct sst_dsp *ctx)
 {
@@ -182,7 +185,7 @@ static int sst_bxt_prepare_fw(struct sst_dsp *ctx,
 
 	/* Step 7: Wait for ROM init */
 	ret = sst_dsp_register_poll(ctx, BXT_ADSP_FW_STATUS, SKL_FW_STS_MASK,
-			SKL_FW_INIT, BXT_INIT_TIMEOUT, "ROM Load");
+			SKL_FW_INIT, BXT_ROM_INIT_TIMEOUT, "ROM Load");
 	if (ret < 0) {
 		dev_err(ctx->dev, "Timeout for ROM init, ret:%d\n", ret);
 		goto base_fw_load_failed;
@@ -215,7 +218,7 @@ static int bxt_load_base_firmware(struct sst_dsp *ctx)
 {
 	struct firmware stripped_fw;
 	struct skl_sst *skl = ctx->thread_context;
-	int ret;
+	int ret, i;
 
 	if (ctx->fw == NULL) {
 		ret = request_firmware(&ctx->fw, ctx->fw_name, ctx->dev);
@@ -236,18 +239,20 @@ static int bxt_load_base_firmware(struct sst_dsp *ctx)
 	stripped_fw.size = ctx->fw->size;
 	skl_dsp_strip_extended_manifest(&stripped_fw);
 
-	ret = sst_bxt_prepare_fw(ctx, stripped_fw.data, stripped_fw.size);
-	/* Retry Enabling core and ROM load. Retry seemed to help */
-	if (ret < 0) {
+
+	for (i = 0; i < BXT_FW_ROM_INIT_RETRY; i++) {
 		ret = sst_bxt_prepare_fw(ctx, stripped_fw.data, stripped_fw.size);
-		if (ret < 0) {
-			dev_err(ctx->dev, "Error code=0x%x: FW status=0x%x\n",
+		if (ret == 0)
+			break;
+	}
+
+	if (ret < 0) {
+		dev_err(ctx->dev, "Error code=0x%x: FW status=0x%x\n",
 			sst_dsp_shim_read(ctx, BXT_ADSP_ERROR_CODE),
 			sst_dsp_shim_read(ctx, BXT_ADSP_FW_STATUS));
 
-			dev_err(ctx->dev, "Core En/ROM load fail:%d\n", ret);
-			goto sst_load_base_firmware_failed;
-		}
+		dev_err(ctx->dev, "Core En/ROM load fail:%d\n", ret);
+		goto sst_load_base_firmware_failed;
 	}
 
 	ret = sst_transfer_fw_host_dma(ctx);

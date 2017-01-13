@@ -25,7 +25,6 @@
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
 #include <linux/freezer.h>
-#include <linux/reboot.h>
 #include <linux/major.h>
 #include "tpm.h"
 #include "tpm_eventlog.h"
@@ -127,7 +126,6 @@ static void tpm_dev_release(struct device *dev)
 	mutex_lock(&idr_lock);
 	idr_remove(&dev_nums_idr, chip->dev_num);
 	mutex_unlock(&idr_lock);
-	unregister_reboot_notifier(&chip->shutdown_nb);
 
 	kfree(chip);
 }
@@ -298,18 +296,6 @@ static void tpm1_chip_unregister(struct tpm_chip *chip)
 		tpm_bios_log_teardown(chip->bios_dir);
 }
 
-static int tpm_shutdown_notify(struct notifier_block *nb,
-				unsigned long unused, void *unused2)
-{
-	struct tpm_chip *chip = container_of(nb, struct tpm_chip, shutdown_nb);
-	if (chip->flags & TPM_CHIP_FLAG_TPM2)
-		tpm2_shutdown(chip, TPM2_SU_CLEAR);
-	dev_dbg(&chip->dev, "acquiring shutdown lock\n");
-	mutex_lock(&chip->tpm_mutex);
-	dev_dbg(&chip->dev, "acquired shutdown lock\n");
-	return NOTIFY_DONE;
-}
-
 static void tpm_del_legacy_sysfs(struct tpm_chip *chip)
 {
 	struct attribute **i;
@@ -389,14 +375,6 @@ int tpm_chip_register(struct tpm_chip *chip)
 		tpm1_chip_unregister(chip);
 		return rc;
 	}
-
-	/* INFINEON TPM WORKAROUND: Register shutdown callback that ensures we
-	 * don't shut down in the middle of a TPM command, or we may trigger
-	 * nasty defensive timeouts at the next boot.
-	 */
-	chip->shutdown_nb.notifier_call = tpm_shutdown_notify;
-	dev_info(&chip->dev, "registering reboot notifier [gentle shutdown]\n");
-	register_reboot_notifier(&chip->shutdown_nb);
 
 	chip->flags |= TPM_CHIP_FLAG_REGISTERED;
 

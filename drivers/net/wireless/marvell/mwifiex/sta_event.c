@@ -873,6 +873,10 @@ int mwifiex_process_sta_event(struct mwifiex_private *priv)
 		mwifiex_bt_coex_wlan_param_update_event(priv,
 							adapter->event_skb);
 		break;
+	/* Debugging event; not used, but let's not print an ERROR for it. */
+	case EVENT_UNKNOWN_DEBUG:
+		mwifiex_dbg(adapter, EVENT, "event: debug\n");
+		break;
 	default:
 		mwifiex_dbg(adapter, ERROR, "event: unknown event id: %#x\n",
 			    eventcause);

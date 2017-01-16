@@ -1422,10 +1422,6 @@ ctnetlink_change_status(struct nf_conn *ct, const struct nlattr * const cda[])
 	unsigned int status = ntohl(nla_get_be32(cda[CTA_STATUS]));
 	d = ct->status ^ status;
 
-	if (d & (IPS_EXPECTED|IPS_CONFIRMED|IPS_DYING))
-		/* unchangeable */
-		return -EBUSY;
-
 	if (d & IPS_SEEN_REPLY && !(status & IPS_SEEN_REPLY))
 		/* SEEN_REPLY bit can only be set */
 		return -EBUSY;
@@ -1436,8 +1432,11 @@ ctnetlink_change_status(struct nf_conn *ct, const struct nlattr * const cda[])
 
 	/* Be careful here, modifying NAT bits can screw up things,
 	 * so don't let users modify them directly if they don't pass
-	 * nf_nat_range. */
-	ct->status |= status & ~(IPS_NAT_DONE_MASK | IPS_NAT_MASK);
+	 * nf_nat_range.  Also, disallow changing bits that indicate
+	 * which hash table owns the connection.
+	 */
+	ct->status = (status & ~IPS_UNCHANGEABLE_MASK) |
+		     (ct->status & IPS_UNCHANGEABLE_MASK);
 	return 0;
 }
 

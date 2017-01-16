@@ -1531,11 +1531,15 @@ ctnetlink_change_timeout(struct nf_conn *ct, const struct nlattr * const cda[])
 {
 	u_int32_t timeout = ntohl(nla_get_be32(cda[CTA_TIMEOUT]));
 
-	if (!del_timer(&ct->timeout))
-		return -ETIME;
+	if (nf_ct_is_confirmed(ct)) {
+		if (!del_timer(&ct->timeout))
+			return -ETIME;
 
-	ct->timeout.expires = jiffies + timeout * HZ;
-	add_timer(&ct->timeout);
+		ct->timeout.expires = jiffies + timeout * HZ;
+		add_timer(&ct->timeout);
+	} else if (timeout != 0) {
+		ct->timeout.expires = timeout * HZ;
+	}
 
 	return 0;
 }

@@ -468,9 +468,9 @@ static struct syscall_whitelist_entry read_write_test_whitelist[] = {
  * Note that the prio returned by getpriority has been offset by 20.
  * (returns 40..1 instead of -20..19)
  */
-int android_getpriority(int which, int who)
+static asmlinkage long android_getpriority(int which, int who)
 {
-	int prio, nice;
+	long prio, nice;
 
 	prio = sys_getpriority(which, who);
 	if (prio <= 20)
@@ -502,7 +502,7 @@ int android_getpriority(int which, int who)
 }
 
 /* Make sure nothing sets a nice value more favorable than -10. */
-long android_setpriority(int which, int who, int niceval)
+static asmlinkage long android_setpriority(int which, int who, int niceval)
 {
 	if (niceval < 0) {
 		if (niceval < -20)
@@ -512,12 +512,13 @@ long android_setpriority(int which, int who, int niceval)
 	return sys_setpriority(which, who, niceval);
 }
 
-int android_sched_setscheduler(pid_t pid, int policy,
-			       const struct sched_param *param)
+static asmlinkage long
+android_sched_setscheduler(pid_t pid, int policy,
+			   struct sched_param __user *param)
 {
 	struct sched_param lparam;
 	struct task_struct *p;
-	int retval;
+	long retval;
 
 	/* negative values for policy are not valid */
 	if (policy < 0)
@@ -556,9 +557,10 @@ int android_sched_setscheduler(pid_t pid, int policy,
 	return retval;
 }
 
-static int android_fallocate(int fd, int mode, loff_t offset, loff_t len)
+static asmlinkage long android_fallocate(int fd, int mode, loff_t offset,
+					 loff_t len)
 {
-	int retval;
+	long retval;
 	struct kstat st;
 
 	retval = sys_fallocate(fd, mode, offset, len);
@@ -594,9 +596,9 @@ static int android_fallocate(int fd, int mode, loff_t offset, loff_t len)
 #define PACK64(lo, hi) (((u64)(hi) << 32) | (lo))
 #endif
 
-static int android_fallocate32(int fd, int mode,
-			       unsigned long offset1, unsigned long offset2,
-			       unsigned long len1, unsigned long len2)
+static asmlinkage long android_fallocate32(int fd, int mode,
+					   unsigned offset1, unsigned offset2,
+					   unsigned len1, unsigned len2)
 {
 	return android_fallocate(fd, mode, (loff_t) PACK64(offset1, offset2),
 				 (loff_t) PACK64(len1, len2));
@@ -604,9 +606,9 @@ static int android_fallocate32(int fd, int mode,
 
 #undef PACK64
 
-static int android_perf_event_open(struct perf_event_attr __user *attr_uptr,
-				   pid_t pid, int cpu, int group_fd,
-				   unsigned long flags)
+static asmlinkage long
+android_perf_event_open(struct perf_event_attr __user *attr_uptr,
+			pid_t pid, int cpu, int group_fd, unsigned long flags)
 {
 	if (!allow_devmode_syscalls)
 		return -EACCES;

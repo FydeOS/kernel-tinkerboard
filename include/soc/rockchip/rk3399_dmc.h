@@ -45,9 +45,8 @@ struct rk3399_dmcfreq {
 	unsigned int odt_pd_arg0;
 	unsigned int odt_pd_arg1;
 	struct regulator *vdd_center;
-	unsigned long rate, target_rate;
-	unsigned long volt, target_volt;
-	struct dev_pm_opp *curr_opp;
+	unsigned long rate;
+	unsigned long volt;
 };
 
 #ifdef CONFIG_ARM_RK3399_DMC_DEVFREQ

@@ -598,11 +598,11 @@ return_normal:
 	/*
 	 * Wait for the other CPUs to be notified and be waiting for us:
 	 */
-	time_left = DIV_ROUND_UP(loops_per_jiffy * HZ, 100);
+	time_left = loops_per_jiffy * HZ;
 	while (kgdb_do_roundup && --time_left &&
 	       (atomic_read(&masters_in_kgdb) + atomic_read(&slaves_in_kgdb)) !=
 		   online_cpus)
-		__delay(100);
+		cpu_relax();
 	if (!time_left)
 		pr_crit("Timed out waiting for secondary CPUs.\n");
 

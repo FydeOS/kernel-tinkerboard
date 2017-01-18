@@ -17,6 +17,7 @@
 
 #include <linux/devfreq.h>
 #include <linux/notifier.h>
+#include <linux/workqueue.h>
 
 #define DMC_MIN_SET_RATE_NS	(250 * NSEC_PER_USEC)
 #define DMC_MIN_VBLANK_NS	(DMC_MIN_SET_RATE_NS + 50 * NSEC_PER_USEC)
@@ -24,7 +25,6 @@
 struct rk3399_dmcfreq {
 	struct device *dev;
 	struct devfreq *devfreq;
-	struct devfreq_simple_ondemand_data ondemand_data;
 	struct clk *dmc_clk;
 	struct devfreq_event_dev *edev;
 	struct mutex lock;
@@ -45,6 +45,10 @@ struct rk3399_dmcfreq {
 	struct regulator *vdd_center;
 	unsigned long rate;
 	unsigned long volt;
+	struct delayed_work throttle_work;
+	unsigned int target_load;
+	unsigned int hysteresis;
+	unsigned int down_throttle_ms;
 };
 
 #if IS_ENABLED(CONFIG_ARM_RK3399_DMC_DEVFREQ)

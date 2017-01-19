@@ -229,6 +229,7 @@ SYSCALL_DEFINE1(adjtimex, struct timex __user *, txc_p)
 	ret = do_adjtimex(&txc);
 	return copy_to_user(txc_p, &txc, sizeof(struct timex)) ? -EFAULT : ret;
 }
+EXPORT_SYMBOL(sys_adjtimex);
 
 /**
  * current_fs_time - Return FS time

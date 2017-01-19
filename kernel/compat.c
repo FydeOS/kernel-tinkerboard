@@ -793,6 +793,7 @@ COMPAT_SYSCALL_DEFINE2(clock_adjtime, clockid_t, which_clock,
 
 	return ret;
 }
+EXPORT_SYMBOL(compat_sys_clock_adjtime);
 
 COMPAT_SYSCALL_DEFINE2(clock_getres, clockid_t, which_clock,
 		       struct compat_timespec __user *, tp)
@@ -1082,6 +1083,7 @@ COMPAT_SYSCALL_DEFINE1(adjtimex, struct compat_timex __user *, utp)
 
 	return ret;
 }
+EXPORT_SYMBOL(compat_sys_adjtimex);
 
 #ifdef CONFIG_NUMA
 COMPAT_SYSCALL_DEFINE6(move_pages, pid_t, pid, compat_ulong_t, nr_pages,

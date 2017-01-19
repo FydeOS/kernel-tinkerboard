@@ -1064,6 +1064,7 @@ SYSCALL_DEFINE2(clock_adjtime, const clockid_t, which_clock,
 
 	return err;
 }
+EXPORT_SYMBOL(sys_clock_adjtime);
 
 SYSCALL_DEFINE2(clock_getres, const clockid_t, which_clock,
 		struct timespec __user *, tp)

@@ -42,8 +42,6 @@ struct rk3399_dmcfreq {
 	unsigned int srpd_lite_idle_dis_freq;
 	unsigned int standby_idle_dis_freq;
 	unsigned int odt_dis_freq;
-	unsigned int odt_pd_arg0;
-	unsigned int odt_pd_arg1;
 	struct regulator *vdd_center;
 	unsigned long rate;
 	unsigned long volt;

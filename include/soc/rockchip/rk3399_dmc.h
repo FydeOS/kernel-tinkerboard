@@ -47,7 +47,7 @@ struct rk3399_dmcfreq {
 	unsigned long volt;
 };
 
-#ifdef CONFIG_ARM_RK3399_DMC_DEVFREQ
+#if IS_ENABLED(CONFIG_ARM_RK3399_DMC_DEVFREQ)
 int rockchip_dmcfreq_register_clk_sync_nb(struct devfreq *devfreq,
 					struct notifier_block *nb);
 int rockchip_dmcfreq_unregister_clk_sync_nb(struct devfreq *devfreq,

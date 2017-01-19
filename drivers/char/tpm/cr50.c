@@ -85,12 +85,19 @@ int cr50_suspend(struct device *dev)
 	 *   re-initialize tpm on resume. Ignore if enabling deep-sleep failed.
 	 * - Disable deep-sleep otherwise. Abort suspend if command failed:
 	 *   can't allow deep-sleep if tpm is not re-initialized on resume.
+	 *   [Aborting on failed commands currently disabled - see TODO below]
 	 */
 	if (pm_suspend_via_firmware()) {
 		cr50_control_deep_sleep(chip, 1);
 		return tpm_pm_suspend(dev);
 	} else {
-		return cr50_control_deep_sleep(chip, 0) ? -EBUSY : 0;
+		/*
+		 * TODO(http://crosbug.com/p/59007): stop ignoring errors
+		 * from tpm when the control-deep-sleep command is implemented
+		 * on the tpm side.
+		 */
+		cr50_control_deep_sleep(chip, 0);
+		return 0;
 	}
 }
 EXPORT_SYMBOL(cr50_suspend);

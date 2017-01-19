@@ -101,7 +101,7 @@ config TCG_ATMEL
 	  as a module, choose M here; the module will be called tpm_atmel.
 
 config TCG_CR50
-	tristate
+	boolean
 	select TCG_TIS_CORE
 	---help---
 	  Common routines shared by drivers for Cr50 devices on SPI and I2C.

@@ -58,9 +58,10 @@ int cr50_control_deep_sleep(struct tpm_chip *chip, bool enable)
 					"enabling deep-sleep" :
 					"disabling deep-sleep");
 }
+EXPORT_SYMBOL(cr50_control_deep_sleep);
 
 #ifdef CONFIG_PM_SLEEP
-int __maybe_unused cr50_resume(struct device *dev)
+int cr50_resume(struct device *dev)
 {
 	struct tpm_chip *chip = dev_get_drvdata(dev);
 
@@ -72,8 +73,9 @@ int __maybe_unused cr50_resume(struct device *dev)
 	else
 		return 0;
 }
+EXPORT_SYMBOL(cr50_resume);
 
-int __maybe_unused cr50_suspend(struct device *dev)
+int cr50_suspend(struct device *dev)
 {
 	struct tpm_chip *chip = dev_get_drvdata(dev);
 
@@ -91,4 +93,5 @@ int __maybe_unused cr50_suspend(struct device *dev)
 		return cr50_control_deep_sleep(chip, 0) ? -EBUSY : 0;
 	}
 }
+EXPORT_SYMBOL(cr50_suspend);
 #endif /* CONFIG_PM_SLEEP */

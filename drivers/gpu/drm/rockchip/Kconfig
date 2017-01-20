@@ -2,6 +2,7 @@ config DRM_ROCKCHIP
 	tristate "DRM Support for Rockchip"
 	depends on DRM && ROCKCHIP_IOMMU
 	depends on RESET_CONTROLLER
+	depends on ARM_RK3399_DMC_DEVFREQ || ARM_RK3399_DMC_DEVFREQ=n
 	select DRM_KMS_HELPER
 	select DRM_PANEL
 	select VIDEOMODE_HELPERS

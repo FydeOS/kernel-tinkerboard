@@ -51,7 +51,4 @@ regulator_of_get_init_data(struct device *dev,
 }
 #endif
 
-void device_get_regulation_constraints(struct fwnode_handle *fwnode,
-					struct regulator_init_data *init_data,
-					const struct regulator_desc *desc);
 #endif

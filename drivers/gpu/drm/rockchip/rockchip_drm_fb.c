@@ -245,31 +245,65 @@ uint32_t rockchip_drm_get_vblank_ns(struct drm_display_mode *mode)
 }
 
 static void
-rockchip_atomic_commit_complete(struct rockchip_atomic_commit *commit)
+rockchip_drm_check_and_block_dmcfreq(struct rockchip_atomic_commit *commit)
 {
 	struct drm_atomic_state *state = commit->state;
 	struct drm_device *dev = commit->dev;
 	struct rockchip_drm_private *priv = dev->dev_private;
+	struct drm_crtc_state *old_crtc_state;
 	struct drm_crtc *crtc;
-	struct drm_display_mode *mode;
-	bool force_dmc_off = false;
+	int i;
 
-	drm_for_each_crtc(crtc, dev) {
-		if (crtc->state->active) {
-			mode = &crtc->state->adjusted_mode;
-			if (rockchip_drm_get_vblank_ns(mode) <
-			    DMC_MIN_VBLANK_NS)
-				force_dmc_off = true;
+	for_each_crtc_in_state(state, crtc, old_crtc_state, i) {
+		struct rockchip_crtc_state *s =
+			to_rockchip_crtc_state(crtc->state);
+		struct rockchip_crtc_state *old_s =
+			to_rockchip_crtc_state(old_crtc_state);
+
+		if (!old_s->needs_dmcfreq_block && s->needs_dmcfreq_block) {
+			rockchip_dmcfreq_block(priv->devfreq);
+			DRM_DEV_DEBUG_KMS(dev->dev,
+				"%s: vblank period too short, blocking dmcfreq (crtc = %d)\n",
+				__func__, drm_crtc_index(crtc));
 		}
 	}
+}
+
+static void
+rockchip_drm_check_and_unblock_dmcfreq(struct rockchip_atomic_commit *commit)
+{
+	struct drm_atomic_state *state = commit->state;
+	struct drm_device *dev = commit->dev;
+	struct rockchip_drm_private *priv = dev->dev_private;
+	struct drm_crtc_state *old_crtc_state;
+	struct drm_crtc *crtc;
+	int i;
+
+	for_each_crtc_in_state(state, crtc, old_crtc_state, i) {
+		struct rockchip_crtc_state *s =
+			to_rockchip_crtc_state(crtc->state);
+		struct rockchip_crtc_state *old_s =
+			to_rockchip_crtc_state(old_crtc_state);
+
+		if (old_s->needs_dmcfreq_block && !s->needs_dmcfreq_block) {
+			rockchip_dmcfreq_unblock(priv->devfreq);
+			DRM_DEV_DEBUG_KMS(dev->dev,
+				"%s: vblank period long enough, unblocking dmcfreq (crtc = %d)\n",
+				__func__, drm_crtc_index(crtc));
+		}
+	}
+}
+
+static void
+rockchip_atomic_commit_complete(struct rockchip_atomic_commit *commit)
+{
+	struct drm_atomic_state *state = commit->state;
+	struct drm_device *dev = commit->dev;
 
 	wait_for_fences(dev, state);
 
 	/* If disabling dmc, disable it before committing mode set changes. */
-	if (force_dmc_off && !priv->dmc_disable_flag) {
-		rockchip_dmcfreq_block(priv->devfreq);
-		priv->dmc_disable_flag = true;
-	}
+	rockchip_drm_check_and_block_dmcfreq(commit);
 
 	/*
 	 * Rockchip crtc support runtime PM, can't update display planes
@@ -301,10 +335,8 @@ rockchip_atomic_commit_complete(struct rockchip_atomic_commit *commit)
 
 	drm_atomic_helper_cleanup_planes(dev, state);
 
-	if (!force_dmc_off && priv->dmc_disable_flag) {
-		rockchip_dmcfreq_unblock(priv->devfreq);
-		priv->dmc_disable_flag = false;
-	}
+	/* If enabling dmc, enable it after mode set changes take effect. */
+	rockchip_drm_check_and_unblock_dmcfreq(commit);
 
 	drm_atomic_state_free(state);
 }
@@ -314,11 +346,7 @@ void rockchip_drm_atomic_work(struct kthread_work *work)
 	struct rockchip_atomic_commit *commit = container_of(work,
 					struct rockchip_atomic_commit, work);
 
-	drm_modeset_lock_all(commit->dev);
-	mutex_lock(&commit->lock);
 	rockchip_atomic_commit_complete(commit);
-	mutex_unlock(&commit->lock);
-	drm_modeset_unlock_all(commit->dev);
 }
 
 int rockchip_drm_atomic_commit(struct drm_device *dev,

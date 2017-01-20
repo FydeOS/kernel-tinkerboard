@@ -63,6 +63,7 @@ struct rockchip_crtc_state {
 	int output_type;
 	int output_mode;
 	int output_bpc;
+	bool needs_dmcfreq_block;
 };
 #define to_rockchip_crtc_state(s) \
 		container_of(s, struct rockchip_crtc_state, base)
@@ -87,7 +88,6 @@ struct rockchip_drm_private {
 
 	struct devfreq *devfreq;
 	struct devfreq_event_dev *devfreq_event_dev;
-	bool dmc_disable_flag;
 	struct drm_atomic_state *state;
 };
 

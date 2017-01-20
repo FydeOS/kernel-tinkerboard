@@ -1262,6 +1262,19 @@ static int dmc_notify(struct notifier_block *nb,
 	return NOTIFY_STOP;
 }
 
+static int vop_crtc_atomic_check(struct drm_crtc *crtc,
+				 struct drm_crtc_state *state)
+{
+	struct rockchip_crtc_state *s = to_rockchip_crtc_state(state);
+	uint32_t vblank_ns;
+
+	vblank_ns = rockchip_drm_get_vblank_ns(&state->adjusted_mode);
+	if (state->active && vblank_ns < DMC_MIN_VBLANK_NS)
+		s->needs_dmcfreq_block = true;
+
+	return 0;
+}
+
 static void vop_crtc_atomic_flush(struct drm_crtc *crtc,
 				  struct drm_crtc_state *old_crtc_state)
 {
@@ -1322,6 +1335,7 @@ static const struct drm_crtc_helper_funcs vop_crtc_helper_funcs = {
 	.enable = vop_crtc_enable,
 	.disable = vop_crtc_disable,
 	.mode_fixup = vop_crtc_mode_fixup,
+	.atomic_check = vop_crtc_atomic_check,
 	.atomic_flush = vop_crtc_atomic_flush,
 	.atomic_begin = vop_crtc_atomic_begin,
 };

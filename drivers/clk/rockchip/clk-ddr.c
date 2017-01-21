@@ -177,8 +177,23 @@ rockchip_ddrclk_sip_recalc_rate(struct clk_hw *hw,
 				unsigned long parent_rate)
 {
 	struct rockchip_ddrclk *ddrclk = to_rockchip_ddrclk_hw(hw);
+	struct arm_smccc_res res;
 
-	return ddrclk->cached_rate;
+	/*
+	 * This is racy, but it doesn't matter. Returning the cached_rate allows
+	 * us to report what the likely value is based on the async work. We
+	 * still need to check if the set rate work timed out in the dmcfreq
+	 * driver, though. That will flush the work before checking the rate,
+	 * and the NOCACHE flag is set for this clk.
+	 */
+	if (work_busy(&ddrclk->set_rate_work))
+		return ddrclk->cached_rate;
+
+	arm_smccc_smc(ROCKCHIP_SIP_DRAM_FREQ, 0, 0,
+		      ROCKCHIP_SIP_CONFIG_DRAM_GET_RATE,
+		      0, 0, 0, 0, &res);
+
+	return res.a0;
 }
 
 static u8 rockchip_ddrclk_get_parent(struct clk_hw *hw)

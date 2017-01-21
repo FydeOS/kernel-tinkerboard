@@ -258,14 +258,18 @@ int rockchip_dmcfreq_register_clk_sync_nb(struct devfreq *devfreq,
 	int ret;
 
 	mutex_lock(&dmcfreq->en_lock);
-	if (dmcfreq->num_sync_nb == 1 && dmcfreq->disable_count <= 0)
+	if (dmcfreq->num_sync_nb == 1 && dmcfreq->disable_count <= 0) {
+		rockchip_ddrclk_set_timeout_en(dmcfreq->dmc_clk, false);
 		devfreq_suspend_device(devfreq);
+	}
 
 	ret = rockchip_ddrclk_register_sync_nb(dmcfreq->dmc_clk, nb);
 	if (ret == 0)
 		dmcfreq->num_sync_nb++;
-	else if (dmcfreq->num_sync_nb == 1 && dmcfreq->disable_count <= 0)
+	else if (dmcfreq->num_sync_nb == 1 && dmcfreq->disable_count <= 0) {
+		rockchip_ddrclk_set_timeout_en(dmcfreq->dmc_clk, true);
 		devfreq_resume_device(devfreq);
+	}
 
 	mutex_unlock(&dmcfreq->en_lock);
 	return ret;
@@ -282,8 +286,10 @@ int rockchip_dmcfreq_unregister_clk_sync_nb(struct devfreq *devfreq,
 	ret = rockchip_ddrclk_unregister_sync_nb(dmcfreq->dmc_clk, nb);
 	if (ret == 0) {
 		dmcfreq->num_sync_nb--;
-		if (dmcfreq->num_sync_nb == 1 && dmcfreq->disable_count <= 0)
+		if (dmcfreq->num_sync_nb == 1 && dmcfreq->disable_count <= 0) {
+			rockchip_ddrclk_set_timeout_en(dmcfreq->dmc_clk, true);
 			devfreq_resume_device(devfreq);
+		}
 	}
 
 	mutex_unlock(&dmcfreq->en_lock);
@@ -297,8 +303,10 @@ int rockchip_dmcfreq_block(struct devfreq *devfreq)
 	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(devfreq->dev.parent);
 
 	mutex_lock(&dmcfreq->en_lock);
-	if (dmcfreq->disable_count == 0)
+	if (dmcfreq->disable_count == 0) {
+		rockchip_ddrclk_set_timeout_en(dmcfreq->dmc_clk, false);
 		devfreq_suspend_device(devfreq);
+	}
 
 	dmcfreq->disable_count++;
 	mutex_unlock(&dmcfreq->en_lock);
@@ -313,8 +321,10 @@ int rockchip_dmcfreq_unblock(struct devfreq *devfreq)
 
 	mutex_lock(&dmcfreq->en_lock);
 	dmcfreq->disable_count--;
-	if (dmcfreq->disable_count == 0)
+	if (dmcfreq->disable_count == 0) {
+		rockchip_ddrclk_set_timeout_en(dmcfreq->dmc_clk, true);
 		devfreq_resume_device(devfreq);
+	}
 
 	WARN_ON(dmcfreq->disable_count < 0);
 	mutex_unlock(&dmcfreq->en_lock);

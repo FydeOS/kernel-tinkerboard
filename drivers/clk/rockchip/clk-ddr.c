@@ -36,6 +36,7 @@ struct rockchip_ddrclk {
 	struct work_struct		set_rate_work;
 	struct mutex			lock;
 	struct raw_notifier_head	sync_chain;
+	bool				timeout_en;
 };
 
 #define to_rockchip_ddrclk_hw(hw) container_of(hw, struct rockchip_ddrclk, hw)
@@ -52,8 +53,9 @@ static void rockchip_ddrclk_set_rate_func(struct work_struct *work)
 
 	mutex_lock(&ddrclk->lock);
 	for (i = 0; i < DDRCLK_SET_RATE_MAX_RETRIES; i++) {
-		ret = raw_notifier_call_chain(&ddrclk->sync_chain, 0, &timeout);
-		if (ret == NOTIFY_BAD)
+		ret = raw_notifier_call_chain(&ddrclk->sync_chain, 0,
+					      &timeout);
+		if (ddrclk->timeout_en && ret == NOTIFY_BAD)
 			goto out;
 
 		/*
@@ -63,7 +65,8 @@ static void rockchip_ddrclk_set_rate_func(struct work_struct *work)
 		* at the wrong time.
 		*/
 		local_irq_disable();
-		if (ktime_after(ktime_add_ns(ktime_get(), DMC_MIN_VBLANK_NS),
+		if (ddrclk->timeout_en &&
+		    ktime_after(ktime_add_ns(ktime_get(), DMC_MIN_VBLANK_NS),
 				timeout)) {
 			local_irq_enable();
 			continue;
@@ -76,6 +79,16 @@ static void rockchip_ddrclk_set_rate_func(struct work_struct *work)
 		break;
 	}
 out:
+	mutex_unlock(&ddrclk->lock);
+}
+
+void rockchip_ddrclk_set_timeout_en(struct clk *clk, bool enable)
+{
+	struct clk_hw *hw = __clk_get_hw(clk);
+	struct rockchip_ddrclk *ddrclk = to_rockchip_ddrclk_hw(hw);
+
+	mutex_lock(&ddrclk->lock);
+	ddrclk->timeout_en = enable;
 	mutex_unlock(&ddrclk->lock);
 }
 
@@ -232,6 +245,7 @@ struct clk *rockchip_clk_register_ddrclk(const char *name, int flags,
 	ddrclk->div_shift = div_shift;
 	ddrclk->div_width = div_width;
 	ddrclk->ddr_flag = ddr_flag;
+	ddrclk->timeout_en = true;
 	mutex_init(&ddrclk->lock);
 	INIT_WORK(&ddrclk->set_rate_work, rockchip_ddrclk_set_rate_func);
 	RAW_INIT_NOTIFIER_HEAD(&ddrclk->sync_chain);

@@ -14,6 +14,7 @@
 #ifndef __RK3399_DMC_PRIV_H
 #define __RK3399_DMC_PRIV_H
 
+void rockchip_ddrclk_set_timeout_en(struct clk *clk, bool enable);
 void rockchip_ddrclk_wait_set_rate(struct clk *clk);
 int rockchip_ddrclk_register_sync_nb(struct clk *clk,
 				     struct notifier_block *nb);

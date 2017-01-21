@@ -303,7 +303,7 @@ int rockchip_dmcfreq_block(struct devfreq *devfreq)
 	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(devfreq->dev.parent);
 
 	mutex_lock(&dmcfreq->en_lock);
-	if (dmcfreq->disable_count == 0) {
+	if (dmcfreq->num_sync_nb <= 1 && dmcfreq->disable_count <= 0) {
 		rockchip_ddrclk_set_timeout_en(dmcfreq->dmc_clk, false);
 		devfreq_suspend_device(devfreq);
 	}
@@ -321,7 +321,7 @@ int rockchip_dmcfreq_unblock(struct devfreq *devfreq)
 
 	mutex_lock(&dmcfreq->en_lock);
 	dmcfreq->disable_count--;
-	if (dmcfreq->disable_count == 0) {
+	if (dmcfreq->num_sync_nb <= 1 && dmcfreq->disable_count <= 0) {
 		rockchip_ddrclk_set_timeout_en(dmcfreq->dmc_clk, true);
 		devfreq_resume_device(devfreq);
 	}

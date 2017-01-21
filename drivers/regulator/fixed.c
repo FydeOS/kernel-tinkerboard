@@ -34,39 +34,40 @@
 #include <linux/property.h>
 #include <linux/gpio/consumer.h>
 
+#include "internal.h"
+
 struct fixed_voltage_data {
 	struct regulator_desc desc;
 	struct regulator_dev *dev;
 };
 
-
 /**
- * of_get_fixed_voltage_config - extract fixed_voltage_config structure info
+ * reg_get_fixed_voltage_config - extract fixed_voltage_config structure info
  * @dev: device requesting for fixed_voltage_config
  * @desc: regulator description
  *
  * Populates fixed_voltage_config structure by extracting data from device
- * tree node, returns a pointer to the populated structure of NULL if memory
- * alloc fails.
+ * tree or ACPI node, returns a pointer to the populated structure or NULL if
+ * memory alloc fails.
  */
 static struct fixed_voltage_config *
-of_get_fixed_voltage_config(struct device *dev,
-			    const struct regulator_desc *desc)
+reg_fixed_voltage_get_config(struct device *dev,
+			const struct regulator_desc *desc)
 {
 	struct fixed_voltage_config *config;
-	struct device_node *np = dev->of_node;
 	struct regulator_init_data *init_data;
+	struct gpio_desc *gpiod;
 
-	config = devm_kzalloc(dev, sizeof(struct fixed_voltage_config),
-								 GFP_KERNEL);
+	config = devm_kzalloc(dev, sizeof(*config), GFP_KERNEL);
 	if (!config)
 		return ERR_PTR(-ENOMEM);
 
-	config->init_data = of_get_regulator_init_data(dev, dev->of_node, desc);
-	if (!config->init_data)
+	init_data = devm_kzalloc(dev, sizeof(*init_data), GFP_KERNEL);
+	if (!init_data)
 		return ERR_PTR(-EINVAL);
 
-	init_data = config->init_data;
+	device_get_regulation_constraints(dev_fwnode(dev), init_data, desc);
+
 	init_data->constraints.apply_uV = 0;
 
 	config->supply_name = init_data->constraints.name;
@@ -74,73 +75,35 @@ of_get_fixed_voltage_config(struct device *dev,
 		config->microvolts = init_data->constraints.min_uV;
 	} else {
 		dev_err(dev,
-			 "Fixed regulator specified with variable voltages\n");
+			"Fixed regulator specified with variable voltages\n");
 		return ERR_PTR(-EINVAL);
 	}
 
 	if (init_data->constraints.boot_on)
 		config->enabled_at_boot = true;
 
-	config->gpio = of_get_named_gpio(np, "gpio", 0);
-	/*
-	 * of_get_named_gpio() currently returns ENODEV rather than
-	 * EPROBE_DEFER. This code attempts to be compatible with both
-	 * for now; the ENODEV check can be removed once the API is fixed.
-	 * of_get_named_gpio() doesn't differentiate between a missing
-	 * property (which would be fine here, since the GPIO is optional)
-	 * and some other error. Patches have been posted for both issues.
-	 * Once they are check in, we should replace this with:
-	 * if (config->gpio < 0 && config->gpio != -ENOENT)
-	 */
-	if ((config->gpio == -ENODEV) || (config->gpio == -EPROBE_DEFER))
+	gpiod = gpiod_lookup(dev, NULL);
+
+	if (gpiod == ERR_PTR(-EPROBE_DEFER))
 		return ERR_PTR(-EPROBE_DEFER);
 
-	of_property_read_u32(np, "startup-delay-us", &config->startup_delay);
+	if (!IS_ERR(gpiod))
+		config->gpio = desc_to_gpio(gpiod);
+	else
+		config->gpio = -1;
 
-	config->enable_high = of_property_read_bool(np, "enable-active-high");
-	config->gpio_is_open_drain = of_property_read_bool(np,
-							   "gpio-open-drain");
+	device_property_read_u32(dev, "startup-delay-us",
+				&config->startup_delay);
 
-	if (of_find_property(np, "vin-supply", NULL))
-		config->input_supply = "vin";
-
-	return config;
-}
-
-/**
- * acpi_get_fixed_voltage_config - extract fixed_voltage_config structure info
- * @dev: device requesting for fixed_voltage_config
- * @desc: regulator description
- *
- * Populates fixed_voltage_config structure by extracting data through ACPI
- * interface, returns a pointer to the populated structure of NULL if memory
- * alloc fails.
- */
-static struct fixed_voltage_config *
-acpi_get_fixed_voltage_config(struct device *dev,
-			      const struct regulator_desc *desc)
-{
-	struct fixed_voltage_config *config;
-	const char *supply_name;
-	struct gpio_desc *gpiod;
-	int ret;
-
-	config = devm_kzalloc(dev, sizeof(*config), GFP_KERNEL);
-	if (!config)
-		return ERR_PTR(-ENOMEM);
-
-	ret = device_property_read_string(dev, "supply-name", &supply_name);
-	if (!ret)
-		config->supply_name = supply_name;
-
-	gpiod = gpiod_get(dev, "gpio", GPIOD_ASIS);
-	if (IS_ERR(gpiod))
-		return ERR_PTR(-ENODEV);
-
-	config->gpio = desc_to_gpio(gpiod);
 	config->enable_high = device_property_read_bool(dev,
 							"enable-active-high");
-	gpiod_put(gpiod);
+	config->gpio_is_open_drain = device_property_read_bool(dev,
+							"gpio-open-drain");
+
+	if (device_property_present(dev, "vin-supply"))
+		config->input_supply = "vin";
+
+	config->init_data = init_data;
 
 	return config;
 }
@@ -160,14 +123,9 @@ static int reg_fixed_voltage_probe(struct platform_device *pdev)
 	if (!drvdata)
 		return -ENOMEM;
 
-	if (pdev->dev.of_node) {
-		config = of_get_fixed_voltage_config(&pdev->dev,
-						     &drvdata->desc);
-		if (IS_ERR(config))
-			return PTR_ERR(config);
-	} else if (ACPI_HANDLE(&pdev->dev)) {
-		config = acpi_get_fixed_voltage_config(&pdev->dev,
-						       &drvdata->desc);
+	if (pdev->dev.of_node || ACPI_HANDLE(&pdev->dev)) {
+		config = reg_fixed_voltage_get_config(&pdev->dev,
+						      &drvdata->desc);
 		if (IS_ERR(config))
 			return PTR_ERR(config);
 	} else {
@@ -208,7 +166,7 @@ static int reg_fixed_voltage_probe(struct platform_device *pdev)
 
 	if (gpio_is_valid(config->gpio)) {
 		cfg.ena_gpio = config->gpio;
-		if (pdev->dev.of_node)
+		if (pdev->dev.of_node || ACPI_HANDLE(&pdev->dev))
 			cfg.ena_gpio_initialized = true;
 	}
 	cfg.ena_gpio_invert = !config->enable_high;

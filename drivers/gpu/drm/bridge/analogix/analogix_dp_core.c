@@ -893,9 +893,8 @@ static int analogix_dp_config_video(struct analogix_dp_device *dp)
 		if (analogix_dp_is_slave_video_stream_clock_on(dp) == 0)
 			break;
 		if (timeout_loop > DP_TIMEOUT_LOOP_COUNT) {
-			dev_warn(dp->dev,
-				 "Ignoring timeout of slave video streamclk ok\n");
-			break;
+			dev_err(dp->dev, "Timeout of slave video streamclk ok\n");
+			return -ETIMEDOUT;
 		}
 		usleep_range(1000, 1001);
 	}
@@ -927,8 +926,9 @@ static int analogix_dp_config_video(struct analogix_dp_device *dp)
 			done_count = 0;
 		}
 		if (timeout_loop > DP_TIMEOUT_LOOP_COUNT) {
-			dev_err(dp->dev, "Timeout of video streamclk ok\n");
-			return -ETIMEDOUT;
+			dev_warn(dp->dev,
+				 "Ignoring timeout of video streamclk ok\n");
+			break;
 		}
 
 		usleep_range(1000, 1001);

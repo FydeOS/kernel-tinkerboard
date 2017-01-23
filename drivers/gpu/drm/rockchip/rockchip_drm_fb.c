@@ -295,6 +295,17 @@ rockchip_drm_check_and_unblock_dmcfreq(struct rockchip_atomic_commit *commit)
 }
 
 static void
+rockchip_drm_psr_flush_state(struct drm_atomic_state *state)
+{
+	struct drm_crtc_state *crtc_state;
+	struct drm_crtc *crtc;
+	int i;
+
+	for_each_crtc_in_state(state, crtc, crtc_state, i)
+		rockchip_drm_psr_flush(crtc);
+}
+
+static void
 rockchip_atomic_commit_complete(struct rockchip_atomic_commit *commit)
 {
 	struct drm_atomic_state *state = commit->state;
@@ -320,6 +331,8 @@ rockchip_atomic_commit_complete(struct rockchip_atomic_commit *commit)
 	 *
 	 * See the kerneldoc entries for these three functions for more details.
 	 */
+
+	rockchip_drm_psr_flush_state(state);
 
 	mutex_lock(&commit->hw_lock);
 

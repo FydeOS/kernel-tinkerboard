@@ -40,6 +40,13 @@ static void vpu_enc_ipi_handler(void *data, unsigned int len, void *priv)
 	struct venc_vpu_inst *vpu =
 		(struct venc_vpu_inst *)(unsigned long)msg->venc_inst;
 
+	if (!vpu) {
+		/* Cannot use mtk_vcodec_err because it needs venc_vpu_inst. */
+		pr_err("%s: invalid venc_inst with id=%X status=%d len=%u\n",
+		       __func__, msg->msg_id, msg->status, len);
+		return;
+	}
+
 	mtk_vcodec_debug(vpu, "msg_id %x inst %p status %d",
 			 msg->msg_id, vpu, msg->status);
 

@@ -138,18 +138,6 @@ static void psr_flush_handler(struct work_struct *work)
 	mutex_unlock(&psr->lock);
 }
 
-static void psr_disable_handler(struct work_struct *work)
-{
-	struct psr_drv *psr = container_of(work, struct psr_drv, disable_work);
-
-	/* If the state has changed since we initiated the flush, do nothing */
-	mutex_lock(&psr->lock);
-	if (psr->state == PSR_ENABLE)
-		psr_set_state_locked(psr, PSR_FLUSH);
-	mutex_unlock(&psr->lock);
-	mod_delayed_work(system_wq, &psr->flush_work, PSR_FLUSH_TIMEOUT_MS);
-}
-
 /**
  * rockchip_drm_psr_activate - activate PSR on the given pipe
  * @encoder: encoder to obtain the PSR encoder
@@ -198,6 +186,7 @@ EXPORT_SYMBOL(rockchip_drm_psr_deactivate);
 
 static void rockchip_drm_do_flush(struct psr_drv *psr)
 {
+	cancel_delayed_work_sync(&psr->flush_work);
 	psr_set_state(psr, PSR_FLUSH);
 	mod_delayed_work(system_wq, &psr->flush_work, PSR_FLUSH_TIMEOUT_MS);
 }
@@ -243,6 +232,13 @@ void rockchip_drm_psr_flush_all(struct drm_device *dev)
 	mutex_unlock(&drm_drv->psr_list_lock);
 }
 EXPORT_SYMBOL(rockchip_drm_psr_flush_all);
+
+static void psr_disable_handler(struct work_struct *work)
+{
+	struct psr_drv *psr = container_of(work, struct psr_drv, disable_work);
+
+	rockchip_drm_do_flush(psr);
+}
 
 static void psr_input_event(struct input_handle *handle,
 			    unsigned int type, unsigned int code,

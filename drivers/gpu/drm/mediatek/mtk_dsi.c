@@ -23,6 +23,10 @@
 #include <linux/of_graph.h>
 #include <linux/phy/phy.h>
 #include <linux/platform_device.h>
+#include <linux/regmap.h>
+#include <linux/mfd/syscon.h>
+#include <uapi/linux/wait.h>
+#include <video/mipi_display.h>
 #include <video/videomode.h>
 
 #include "mtk_drm_ddp_comp.h"
@@ -32,10 +36,20 @@
 
 #define DSI_START		0x00
 
+#define DSI_INTEN		0x08
+
+#define DSI_INTSTA		0x0c
+#define LPRX_RD_RDY_INT_FLAG		BIT(0)
+#define CMD_DONE_INT_FLAG		BIT(1)
+#define TE_RDY_INT_FLAG			BIT(2)
+#define VM_DONE_INT_FLAG		BIT(3)
+#define EXT_TE_RDY_INT_FLAG		BIT(4)
+#define DSI_BUSY			BIT(31)
+
 #define DSI_CON_CTRL		0x10
 #define DSI_RESET			BIT(0)
 #define DSI_EN				BIT(1)
-
+#define DSI_DUAL			BIT(4)
 #define DSI_MODE_CTRL		0x14
 #define MODE				(3)
 #define CMD_MODE			0
@@ -72,7 +86,20 @@
 #define DSI_HBP_WC		0x54
 #define DSI_HFP_WC		0x58
 
+#define DSI_CMDQ_SIZE		0x60
+#define CMDQ_SIZE		0x3f
+
 #define DSI_HSTX_CKL_WC		0x64
+
+#define DSI_RX_DATA0		0x74
+#define DSI_RX_DATA1		0x78
+#define DSI_RX_DATA2		0x7c
+#define DSI_RX_DATA3		0x80
+
+#define DSI_RACK		0x84
+#define RACK				BIT(0)
+
+#define DSI_MEM_CONTI		0x90
 
 #define DSI_PHY_LCCON		0x104
 #define LC_HS_TX_EN			BIT(0)
@@ -106,6 +133,22 @@
 #define CLK_HS_POST			(0xff << 8)
 #define CLK_HS_EXIT			(0xff << 16)
 
+#define DSI_VM_CMD_CON		0x130
+#define VM_CMD_EN			BIT(0)
+#define TS_VFP_EN			BIT(5)
+
+#define DSI_CMDQ0		0x200
+#define CONFIG				(0xff << 0)
+#define SHORT_PACKET			0
+#define LONG_PACKET			2
+#define BTA				BIT(2)
+#define DATA_ID				(0xff << 8)
+#define DATA_0				(0xff << 16)
+#define DATA_1				(0xff << 24)
+
+#define MMSYS_SW_RST_DSI_B	BIT(2)
+#define MMSYS_SW_RST_DSI1_B	BIT(3)
+
 #define T_LPX		5
 #define T_HS_PREP	6
 #define T_HS_TRAIL	8
@@ -125,11 +168,19 @@ struct mtk_dsi {
 	struct drm_panel *panel;
 	struct drm_bridge *bridge;
 	struct phy *phy;
+	bool dual_dsi_mode;
+
+	struct regmap *mmsys_sw_rst_b;
+	u32 sw_rst_b;
 
 	void __iomem *regs;
+	void __iomem *regs_tx1;
 
 	struct clk *engine_clk;
 	struct clk *digital_clk;
+	struct clk *engine1_clk;
+	struct clk *digital1_clk;
+
 	struct clk *hs_clk;
 
 	u32 data_rate;
@@ -160,6 +211,8 @@ static inline struct mtk_dsi *host_to_dsi(struct mipi_dsi_host *h)
 static void mtk_dsi_write(struct mtk_dsi *dsi, u32 data, u32 offset)
 {
 	writel(data, dsi->regs + offset);
+	if (dsi->dual_dsi_mode)
+		writel(data, dsi->regs_tx1 + offset);
 }
 
 static void mtk_dsi_mask(struct mtk_dsi *dsi, u32 offset, u32 mask, u32 data)
@@ -207,12 +260,26 @@ static void mtk_dsi_reset(struct mtk_dsi *dsi)
 	mtk_dsi_mask(dsi, DSI_CON_CTRL, DSI_RESET, 0);
 }
 
+static void mtk_dsi_reset_all(struct mtk_dsi *dsi)
+{
+	regmap_update_bits(dsi->mmsys_sw_rst_b, dsi->sw_rst_b,
+		MMSYS_SW_RST_DSI_B, 0);
+	regmap_update_bits(dsi->mmsys_sw_rst_b, dsi->sw_rst_b,
+		MMSYS_SW_RST_DSI1_B, 0);
+	usleep_range(1000, 1100);
+	regmap_update_bits(dsi->mmsys_sw_rst_b, dsi->sw_rst_b,
+		MMSYS_SW_RST_DSI_B, MMSYS_SW_RST_DSI_B);
+	regmap_update_bits(dsi->mmsys_sw_rst_b, dsi->sw_rst_b,
+		MMSYS_SW_RST_DSI1_B, MMSYS_SW_RST_DSI1_B);
+}
+
 static int mtk_dsi_poweron(struct mtk_dsi *dsi)
 {
 	struct device *dev = dsi->dev;
 	int ret;
 	u64 pixel_clock, total_bits;
 	u32 htotal, htotal_bits, bit_per_pixel, overhead_cycles, overhead_bits;
+	unsigned long mipi_tx_rate;
 
 	if (++dsi->refcount != 1)
 		return 0;
@@ -251,7 +318,16 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
 	dsi->data_rate = DIV_ROUND_UP_ULL(pixel_clock * total_bits,
 					  htotal * dsi->lanes);
 
-	ret = clk_set_rate(dsi->hs_clk, dsi->data_rate);
+	mipi_tx_rate = dsi->data_rate;
+
+	if (dsi->dual_dsi_mode)
+		mipi_tx_rate /= 2;
+
+	/* Store DSI data rate in MHz */
+	dsi->data_rate /= 1000000;
+
+	DRM_INFO("set mipitx's data rate: %lu Hz\n", mipi_tx_rate);
+	ret = clk_set_rate(dsi->hs_clk, mipi_tx_rate);
 	if (ret < 0) {
 		dev_err(dev, "Failed to set data rate: %d\n", ret);
 		goto err_refcount;
@@ -271,12 +347,30 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
 		goto err_disable_engine_clk;
 	}
 
+	if (dsi->dual_dsi_mode) {
+		ret = clk_prepare_enable(dsi->engine1_clk);
+		if (ret < 0) {
+			dev_err(dev, "Failed to enable engine1 clock: %d\n", ret);
+			goto err_disable_digital_clk;
+		}
+
+		ret = clk_prepare_enable(dsi->digital1_clk);
+		if (ret < 0) {
+			dev_err(dev, "Failed to enable digital clock: %d\n", ret);
+			goto err_disable_engine1_clk;
+		}
+	}
+
 	mtk_dsi_enable(dsi);
 	mtk_dsi_reset(dsi);
 	dsi_phy_timconfig(dsi);
 
 	return 0;
 
+err_disable_engine1_clk:
+	clk_disable_unprepare(dsi->engine1_clk);
+err_disable_digital_clk:
+	clk_disable_unprepare(dsi->digital_clk);
 err_disable_engine_clk:
 	clk_disable_unprepare(dsi->engine_clk);
 err_phy_power_off:
@@ -289,7 +383,7 @@ err_refcount:
 static void dsi_clk_ulp_mode_enter(struct mtk_dsi *dsi)
 {
 	mtk_dsi_mask(dsi, DSI_PHY_LCCON, LC_HS_TX_EN, 0);
-	mtk_dsi_mask(dsi, DSI_PHY_LCCON, LC_ULPM_EN, 0);
+	mtk_dsi_mask(dsi, DSI_PHY_LCCON, LC_ULPM_EN, LC_ULPM_EN);
 }
 
 static void dsi_clk_ulp_mode_leave(struct mtk_dsi *dsi)
@@ -302,7 +396,7 @@ static void dsi_clk_ulp_mode_leave(struct mtk_dsi *dsi)
 static void dsi_lane0_ulp_mode_enter(struct mtk_dsi *dsi)
 {
 	mtk_dsi_mask(dsi, DSI_PHY_LD0CON, LD0_HS_TX_EN, 0);
-	mtk_dsi_mask(dsi, DSI_PHY_LD0CON, LD0_ULPM_EN, 0);
+	mtk_dsi_mask(dsi, DSI_PHY_LD0CON, LD0_ULPM_EN, LD0_ULPM_EN);
 }
 
 static void dsi_lane0_ulp_mode_leave(struct mtk_dsi *dsi)
@@ -333,14 +427,21 @@ static void dsi_set_mode(struct mtk_dsi *dsi)
 	u32 vid_mode = CMD_MODE;
 
 	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO) {
-		vid_mode = SYNC_PULSE_MODE;
-
-		if ((dsi->mode_flags & MIPI_DSI_MODE_VIDEO_BURST) &&
-		    !(dsi->mode_flags & MIPI_DSI_MODE_VIDEO_SYNC_PULSE))
+		if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO_BURST)
 			vid_mode = BURST_MODE;
+		else if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO_SYNC_PULSE)
+			vid_mode = SYNC_PULSE_MODE;
+		else
+			vid_mode = SYNC_EVENT_MODE;
 	}
 
 	mtk_dsi_write(dsi, vid_mode, DSI_MODE_CTRL);
+}
+
+static void mtk_dsi_set_vm_cmd(struct mtk_dsi *dsi)
+{
+	mtk_dsi_mask(dsi, DSI_VM_CMD_CON, VM_CMD_EN, VM_CMD_EN);
+	mtk_dsi_mask(dsi, DSI_VM_CMD_CON, TS_VFP_EN, TS_VFP_EN);
 }
 
 static void dsi_ps_control_vact(struct mtk_dsi *dsi)
@@ -355,6 +456,9 @@ static void dsi_ps_control_vact(struct mtk_dsi *dsi)
 		dsi_buf_bpp = 3;
 
 	ps_wc = vm->hactive * dsi_buf_bpp;
+	if (dsi->dual_dsi_mode)
+		ps_wc /= 2;
+
 	ps_bpp_mode = ps_wc;
 
 	switch (dsi->format) {
@@ -399,6 +503,9 @@ static void dsi_rxtx_control(struct mtk_dsi *dsi)
 		break;
 	}
 
+	tmp_reg |= (dsi->mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS) << 6;
+	tmp_reg |= (dsi->mode_flags & MIPI_DSI_MODE_EOT_PACKET) >> 3;
+
 	mtk_dsi_write(dsi, tmp_reg, DSI_TXRX_CTRL);
 }
 
@@ -406,6 +513,7 @@ static void dsi_ps_control(struct mtk_dsi *dsi)
 {
 	unsigned int dsi_tmp_buf_bpp;
 	u32 tmp_reg;
+	unsigned int hactive;
 
 	switch (dsi->format) {
 	case MIPI_DSI_FMT_RGB888:
@@ -430,7 +538,10 @@ static void dsi_ps_control(struct mtk_dsi *dsi)
 		break;
 	}
 
-	tmp_reg += dsi->vm.hactive * dsi_tmp_buf_bpp & DSI_PS_WC;
+	hactive = dsi->vm.hactive;
+	if (dsi->dual_dsi_mode)
+		hactive /= 2;
+	tmp_reg += (hactive * dsi_tmp_buf_bpp) & DSI_PS_WC;
 	mtk_dsi_write(dsi, tmp_reg, DSI_PSCTRL);
 }
 
@@ -474,7 +585,13 @@ static void dsi_config_vdo_timing(struct mtk_dsi *dsi)
 static void mtk_dsi_start(struct mtk_dsi *dsi)
 {
 	mtk_dsi_write(dsi, 0, DSI_START);
-	mtk_dsi_write(dsi, 1, DSI_START);
+	/* Only start the master DSI */
+	writel(1, dsi->regs + DSI_START);
+}
+
+static void mtk_dsi_stop(struct mtk_dsi *dsi)
+{
+	mtk_dsi_write(dsi, 0, DSI_START);
 }
 
 static void mtk_dsi_poweroff(struct mtk_dsi *dsi)
@@ -485,15 +602,46 @@ static void mtk_dsi_poweroff(struct mtk_dsi *dsi)
 	if (--dsi->refcount != 0)
 		return;
 
-	dsi_lane0_ulp_mode_enter(dsi);
-	dsi_clk_ulp_mode_enter(dsi);
+	if (!dsi->dual_dsi_mode) {
+		dsi_lane0_ulp_mode_enter(dsi);
+		dsi_clk_ulp_mode_enter(dsi);
 
-	mtk_dsi_disable(dsi);
+		mtk_dsi_disable(dsi);
+	}
 
 	clk_disable_unprepare(dsi->engine_clk);
 	clk_disable_unprepare(dsi->digital_clk);
-
+	if (dsi->dual_dsi_mode) {
+		clk_disable_unprepare(dsi->engine1_clk);
+		clk_disable_unprepare(dsi->digital1_clk);
+	}
 	phy_power_off(dsi->phy);
+}
+
+static void mtk_dsi_tx_cmd_type0(struct mtk_dsi *dsi, u8 cmd)
+{
+	u32 counter = 0;
+
+	mtk_dsi_write(dsi, 0, DSI_START);
+	mtk_dsi_write(dsi, 0x00000500 | (cmd << 16), DSI_CMDQ0);
+	mtk_dsi_write(dsi, 1, DSI_CMDQ_SIZE);
+	mtk_dsi_write(dsi, 0, DSI_INTSTA);
+	mtk_dsi_write(dsi, 1, DSI_START);
+
+	for (counter = 0; counter < 100; counter++) {
+		if (readl(dsi->regs + DSI_INTSTA) & CMD_DONE_INT_FLAG)
+			break;
+		usleep_range(10, 15);
+	}
+
+	if (dsi->dual_dsi_mode) {
+		for (counter = 0; counter < 100; counter++) {
+			u32 intsta = readl(dsi->regs_tx1 + DSI_INTSTA);
+			if (intsta & CMD_DONE_INT_FLAG)
+				break;
+			usleep_range(10, 15);
+		}
+	}
 }
 
 static void mtk_output_dsi_enable(struct mtk_dsi *dsi)
@@ -503,10 +651,12 @@ static void mtk_output_dsi_enable(struct mtk_dsi *dsi)
 	if (dsi->enabled)
 		return;
 
-	if (dsi->panel) {
-		if (drm_panel_prepare(dsi->panel)) {
-			DRM_ERROR("failed to setup the panel\n");
-			return;
+	if (!dsi->dual_dsi_mode) {
+		if (dsi->panel) {
+			if (drm_panel_prepare(dsi->panel)) {
+				DRM_ERROR("failed to prepare the panel\n");
+				return;
+			}
 		}
 	}
 
@@ -517,20 +667,68 @@ static void mtk_output_dsi_enable(struct mtk_dsi *dsi)
 	}
 
 	dsi_rxtx_control(dsi);
+	if (dsi->dual_dsi_mode) {
+		dsi_ps_control_vact(dsi);
+		mtk_dsi_set_vm_cmd(dsi);
+		dsi_config_vdo_timing(dsi);
+	}
 
 	dsi_clk_ulp_mode_leave(dsi);
 	dsi_lane0_ulp_mode_leave(dsi);
 	dsi_clk_hs_mode(dsi, 0);
-	dsi_set_mode(dsi);
 
-	dsi_ps_control_vact(dsi);
-	dsi_config_vdo_timing(dsi);
+	if (!dsi->dual_dsi_mode) {
+		dsi_set_mode(dsi);
+
+		dsi_ps_control_vact(dsi);
+		dsi_config_vdo_timing(dsi);
+	} else {
+		if (dsi->panel) {
+			if (drm_panel_prepare(dsi->panel)) {
+				DRM_ERROR("failed to prepare the panel\n");
+				return;
+			}
+		}
+	}
 
 	dsi_set_mode(dsi);
 	dsi_clk_hs_mode(dsi, 1);
 
-	mtk_dsi_start(dsi);
+	if (!dsi->dual_dsi_mode) {
+		mtk_dsi_start(dsi);
+	} else {
 
+		mtk_dsi_write(dsi, 0, DSI_START);
+		/* disable dual_dsi for send cmd */
+		mtk_dsi_write(dsi, DSI_EN, DSI_CON_CTRL);
+
+		mtk_dsi_write(dsi, CMD_MODE, DSI_MODE_CTRL);
+		mtk_dsi_write(dsi, 1, DSI_START);
+
+		mtk_dsi_tx_cmd_type0(dsi, MIPI_DCS_EXIT_SLEEP_MODE);
+		mtk_dsi_tx_cmd_type0(dsi, MIPI_DCS_SET_DISPLAY_ON);
+
+		mtk_dsi_write(dsi, 0, DSI_START);
+
+		mtk_dsi_write(dsi, DSI_EN | DSI_DUAL, DSI_CON_CTRL);
+
+		mtk_dsi_write(dsi, BURST_MODE, DSI_MODE_CTRL);
+
+		mtk_dsi_start(dsi);
+
+		if (dsi->panel) {
+			if (drm_panel_enable(dsi->panel)) {
+				DRM_ERROR("failed to enable the panel\n");
+
+				if(drm_panel_unprepare(dsi->panel))
+					DRM_ERROR("failed to unprepare the panel\n");
+
+				mtk_dsi_stop(dsi);
+				mtk_dsi_poweroff(dsi);
+				return;
+			}
+		}
+	}
 	dsi->enabled = true;
 }
 
@@ -544,6 +742,19 @@ static void mtk_output_dsi_disable(struct mtk_dsi *dsi)
 			DRM_ERROR("failed to disable the panel\n");
 			return;
 		}
+	}
+
+	if (dsi->dual_dsi_mode) {
+		mtk_dsi_stop(dsi);
+
+		if (dsi->panel)
+			if (drm_panel_unprepare(dsi->panel))
+				DRM_ERROR("failed to unprepare the panel\n");
+
+		mtk_dsi_reset(dsi);
+		dsi_lane0_ulp_mode_enter(dsi);
+		dsi_clk_ulp_mode_enter(dsi);
+		mtk_dsi_disable(dsi);
 	}
 
 	mtk_dsi_poweroff(dsi);
@@ -687,6 +898,9 @@ static int mtk_dsi_create_connector(struct drm_device *drm, struct mtk_dsi *dsi)
 		}
 	}
 
+	if (dsi->dual_dsi_mode)
+		mtk_dsi_reset_all(dsi);
+
 	return 0;
 
 err_connector_cleanup:
@@ -799,10 +1013,12 @@ static int mtk_dsi_bind(struct device *dev, struct device *master, void *data)
 		return ret;
 	}
 
-	ret = mipi_dsi_host_register(&dsi->host);
-	if (ret < 0) {
-		dev_err(dev, "failed to register DSI host: %d\n", ret);
-		goto err_ddp_comp_unregister;
+	if (!dsi->dual_dsi_mode) {
+		ret = mipi_dsi_host_register(&dsi->host);
+		if (ret < 0) {
+			dev_err(dev, "failed to register DSI host: %d\n", ret);
+			goto err_ddp_comp_unregister;
+		}
 	}
 
 	ret = mtk_dsi_create_conn_enc(drm, dsi);
@@ -814,7 +1030,8 @@ static int mtk_dsi_bind(struct device *dev, struct device *master, void *data)
 	return 0;
 
 err_unregister:
-	mipi_dsi_host_unregister(&dsi->host);
+	if (!dsi->dual_dsi_mode)
+		mipi_dsi_host_unregister(&dsi->host);
 err_ddp_comp_unregister:
 	mtk_ddp_comp_unregister(drm, &dsi->ddp_comp);
 	return ret;
@@ -851,22 +1068,31 @@ static int mtk_dsi_probe(struct platform_device *pdev)
 
 	dsi->host.ops = &mtk_dsi_ops;
 	dsi->host.dev = dev;
+	dsi->dual_dsi_mode = of_property_read_bool(dev->of_node,
+						   "mediatek,dual-dsi-mode");
 
-	endpoint = of_graph_get_next_endpoint(dev->of_node, NULL);
-	if (endpoint) {
-		remote_node = of_graph_get_remote_port_parent(endpoint);
-		if (!remote_node) {
-			dev_err(dev, "No panel connected\n");
-			return -ENODEV;
-		}
+	if (!dsi->dual_dsi_mode) {
+		endpoint = of_graph_get_next_endpoint(dev->of_node, NULL);
+		if (endpoint) {
+			remote_node = of_graph_get_remote_port_parent(endpoint);
+			if (!remote_node) {
+				dev_err(dev, "No panel connected\n");
+				return -ENODEV;
+			}
 
-		dsi->bridge = of_drm_find_bridge(remote_node);
-		dsi->panel = of_drm_find_panel(remote_node);
-		of_node_put(remote_node);
-		if (!dsi->bridge && !dsi->panel) {
-			dev_info(dev, "Waiting for bridge or panel driver\n");
-			return -EPROBE_DEFER;
+			dsi->bridge = of_drm_find_bridge(remote_node);
+			dsi->panel = of_drm_find_panel(remote_node);
+			of_node_put(remote_node);
+			if (!dsi->bridge && !dsi->panel) {
+				dev_info(dev, "Waiting for bridge or panel driver\n");
+				return -EPROBE_DEFER;
+			}
 		}
+	} else {
+		dsi->mode_flags = MIPI_DSI_MODE_VIDEO;
+		dsi->format = MIPI_DSI_FMT_RGB888;
+		dsi->lanes = 4;
+		dsi->dev = dev;
 	}
 
 	dsi->engine_clk = devm_clk_get(dev, "engine");
@@ -905,22 +1131,96 @@ static int mtk_dsi_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	if (dsi->dual_dsi_mode) {
+		dsi->engine1_clk = devm_clk_get(dev, "engine1");
+		if (IS_ERR(dsi->engine1_clk)) {
+			ret = PTR_ERR(dsi->engine1_clk);
+			dev_err(dev, "Failed to get engine1 clock: %d\n", ret);
+			return ret;
+		}
+
+		dsi->digital1_clk = devm_clk_get(dev, "digital1");
+		if (IS_ERR(dsi->digital1_clk)) {
+			ret = PTR_ERR(dsi->digital1_clk);
+			dev_err(dev, "Failed to get digital1 clock: %d\n", ret);
+			return ret;
+		}
+
+		regs = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+		dsi->regs_tx1 = devm_ioremap_resource(dev, regs);
+		if (IS_ERR(dsi->regs_tx1)) {
+			ret = PTR_ERR(dsi->regs_tx1);
+			dev_err(dev, "Failed to ioremap dsi1 regs: %d\n",
+				ret);
+			return ret;
+		}
+
+		dsi->mmsys_sw_rst_b = syscon_regmap_lookup_by_phandle(dev->of_node,
+				"mediatek,syscon-dsi");
+		if (IS_ERR(dsi->mmsys_sw_rst_b)) {
+			dev_err(dev, "Failed to get sys config register\n");
+			return PTR_ERR(dsi->mmsys_sw_rst_b);
+		}
+
+		ret = of_property_read_u32_index(dev->of_node, "mediatek,syscon-dsi",
+						 1, &dsi->sw_rst_b);
+		if (ret) {
+			dev_err(dev, "Failed to get reset con: %d\n", ret);
+			return ret;
+		}
+
+		endpoint = of_graph_get_next_endpoint(dev->of_node, NULL);
+		if (!endpoint) {
+			dev_err(dev, "No endpoint found\n");
+			return -ENODEV;
+		}
+
+		remote_node = of_graph_get_remote_port_parent(endpoint);
+		if (!remote_node) {
+			dev_err(dev, "No panel connected\n");
+			return -ENODEV;
+		}
+
+		ret = mipi_dsi_host_register(&dsi->host);
+		if (ret < 0) {
+			dev_err(dev, "failed to register DSI host: %d\n", ret);
+			return -EPROBE_DEFER;
+		}
+
+		dsi->bridge = of_drm_find_bridge(remote_node);
+		dsi->panel = of_drm_find_panel(remote_node);
+		of_node_put(remote_node);
+
+		if (!dsi->bridge && !dsi->panel) {
+			dev_err(dev, "Waiting for bridge or panel driver\n");
+			ret = -EPROBE_DEFER;
+			goto err_mipi_dsi_host_unregister;
+		}
+	}
+
 	comp_id = mtk_ddp_comp_get_id(dev->of_node, MTK_DSI);
 	if (comp_id < 0) {
 		dev_err(dev, "Failed to identify by alias: %d\n", comp_id);
-		return comp_id;
+		ret = comp_id;
+			goto err_mipi_dsi_host_unregister;
 	}
 
 	ret = mtk_ddp_comp_init(dev, dev->of_node, &dsi->ddp_comp, comp_id,
 				&mtk_dsi_funcs);
 	if (ret) {
 		dev_err(dev, "Failed to initialize component: %d\n", ret);
-		return ret;
+		goto err_mipi_dsi_host_unregister;
 	}
 
 	platform_set_drvdata(pdev, dsi);
 
 	return component_add(&pdev->dev, &mtk_dsi_component_ops);
+
+err_mipi_dsi_host_unregister:
+	if (dsi->dual_dsi_mode)
+		mipi_dsi_host_unregister(&dsi->host);
+
+	return ret;
 }
 
 static int mtk_dsi_remove(struct platform_device *pdev)

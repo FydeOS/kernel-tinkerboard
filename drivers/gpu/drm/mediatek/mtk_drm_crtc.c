@@ -551,7 +551,9 @@ void mtk_crtc_vblank_irq(struct drm_crtc *crtc)
 }
 
 int mtk_drm_crtc_create(struct drm_device *drm_dev,
-			const enum mtk_ddp_comp_id *path, unsigned int path_len)
+			const enum mtk_ddp_comp_id *path,
+			unsigned int path_len,
+			bool dual_dsi_mode)
 {
 	struct mtk_drm_private *priv = drm_dev->dev_private;
 	struct device *dev = drm_dev->dev;
@@ -615,6 +617,8 @@ int mtk_drm_crtc_create(struct drm_device *drm_dev,
 		}
 
 		mtk_crtc->ddp_comp[i] = comp;
+
+		mtk_ddp_comp_set_dual_dsi_mode(comp, dual_dsi_mode);
 	}
 
 	for (zpos = 0; zpos < OVL_LAYER_NR; zpos++) {

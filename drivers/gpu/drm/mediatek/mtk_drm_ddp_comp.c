@@ -50,7 +50,11 @@ static phys_addr_t addr_va2pa(void __iomem *va)
 #define DISP_DITHER_15				0x013c
 #define DISP_DITHER_16				0x0140
 
+#define DISP_REG_SPLIT_START			0x0000
+
 #define DISP_REG_UFO_START			0x0000
+#define DISP_REG_UFO_WIDTH			0x0050
+#define DISP_REG_UFO_HEIGHT			0x0054
 
 #define DISP_COLOR_CFG_MAIN			0x0400
 #define DISP_COLOR_START			0x0c00
@@ -73,6 +77,7 @@ static phys_addr_t addr_va2pa(void __iomem *va)
 #define OD_RELAYMODE				BIT(0)
 
 #define UFO_BYPASS				BIT(2)
+#define UFO_LR					BIT(3) | BIT(0)
 
 #define AAL_EN					BIT(0)
 
@@ -146,9 +151,25 @@ static void mtk_od_start(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
 	cmdq_write(handle, 1, comp->regs + DISP_OD_EN);
 }
 
+static void mtk_ufoe_config(struct mtk_ddp_comp *comp, unsigned int w,
+			    unsigned int h, unsigned int vrefresh,
+			    unsigned int bpc, struct cmdq_rec *handle)
+{
+	cmdq_write(handle, w, comp->regs + DISP_REG_UFO_WIDTH);
+	cmdq_write(handle, h, comp->regs + DISP_REG_UFO_HEIGHT);
+}
+
 static void mtk_ufoe_start(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
 {
-	cmdq_write(handle, UFO_BYPASS, comp->regs + DISP_REG_UFO_START);
+	if (comp->dual_dsi_mode)
+		cmdq_write(handle, UFO_LR, comp->regs + DISP_REG_UFO_START);
+	else
+		cmdq_write(handle, UFO_BYPASS, comp->regs + DISP_REG_UFO_START);
+}
+
+static void mtk_split_start(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
+{
+	cmdq_write(handle, 1, comp->regs + DISP_REG_SPLIT_START);
 }
 
 static void mtk_aal_config(struct mtk_ddp_comp *comp, unsigned int w,
@@ -235,6 +256,11 @@ static const struct mtk_ddp_comp_funcs ddp_od = {
 
 static const struct mtk_ddp_comp_funcs ddp_ufoe = {
 	.start = mtk_ufoe_start,
+	.config = mtk_ufoe_config,
+};
+
+static const struct mtk_ddp_comp_funcs ddp_split = {
+	.start = mtk_split_start,
 };
 
 static const char * const mtk_ddp_comp_stem[MTK_DDP_COMP_TYPE_MAX] = {
@@ -250,6 +276,7 @@ static const char * const mtk_ddp_comp_stem[MTK_DDP_COMP_TYPE_MAX] = {
 	[MTK_DISP_PWM] = "pwm",
 	[MTK_DISP_MUTEX] = "mutex",
 	[MTK_DISP_OD] = "od",
+	[MTK_DISP_SPLIT] = "split",
 };
 
 struct mtk_ddp_comp_match {
@@ -276,6 +303,8 @@ static const struct mtk_ddp_comp_match mtk_ddp_matches[DDP_COMPONENT_ID_MAX] = {
 	[DDP_COMPONENT_UFOE]	= { MTK_DISP_UFOE,	0, &ddp_ufoe },
 	[DDP_COMPONENT_WDMA0]	= { MTK_DISP_WDMA,	0, NULL },
 	[DDP_COMPONENT_WDMA1]	= { MTK_DISP_WDMA,	1, NULL },
+	[DDP_COMPONENT_SPLIT0]	= { MTK_DISP_SPLIT,	0, &ddp_split },
+	[DDP_COMPONENT_SPLIT1]	= { MTK_DISP_SPLIT,	1, &ddp_split },
 };
 
 int mtk_ddp_comp_get_id(struct device_node *node,
@@ -370,4 +399,10 @@ void mtk_ddp_comp_unregister(struct drm_device *drm, struct mtk_ddp_comp *comp)
 	struct mtk_drm_private *private = drm->dev_private;
 
 	private->ddp_comp[comp->id] = NULL;
+}
+
+void mtk_ddp_comp_set_dual_dsi_mode(struct mtk_ddp_comp *comp,
+		bool dual_dsi_mode)
+{
+	comp->dual_dsi_mode = dual_dsi_mode;
 }

@@ -28,6 +28,7 @@
 #define DISP_REG_CONFIG_DISP_COLOR0_SEL_IN	0x084
 #define DISP_REG_CONFIG_DISP_COLOR1_SEL_IN	0x088
 #define DISP_REG_CONFIG_DPI_SEL_IN		0x0ac
+#define DISP_REG_CONFIG_DSI_SEL_IN		0x0a4
 #define DISP_REG_CONFIG_DISP_RDMA1_MOUT_EN	0x0c8
 #define DISP_REG_CONFIG_MMSYS_CG_CON0		0x100
 
@@ -60,11 +61,13 @@
 #define OVL0_MOUT_EN_COLOR0		0x1
 #define OD_MOUT_EN_RDMA0		0x1
 #define UFOE_MOUT_EN_DSI0		0x1
+#define UFOE_MOUT_EN_SPLIT1		0x2
 #define COLOR0_SEL_IN_OVL0		0x1
 #define OVL1_MOUT_EN_COLOR1		0x1
 #define GAMMA_MOUT_EN_RDMA1		0x1
 #define RDMA1_MOUT_DPI0			0x2
 #define DPI0_SEL_IN_RDMA1		0x1
+#define DSI0_SEL_IN_SPLIT		0x1
 #define COLOR1_SEL_IN_OVL1		0x1
 
 struct mtk_disp_mutex {
@@ -112,6 +115,9 @@ static unsigned int mtk_ddp_mout_en(enum mtk_ddp_comp_id cur,
 	} else if (cur == DDP_COMPONENT_UFOE && next == DDP_COMPONENT_DSI0) {
 		*addr = DISP_REG_CONFIG_DISP_UFOE_MOUT_EN;
 		value = UFOE_MOUT_EN_DSI0;
+	} else if (cur == DDP_COMPONENT_UFOE && next == DDP_COMPONENT_SPLIT1) {
+		*addr = DISP_REG_CONFIG_DISP_UFOE_MOUT_EN;
+		value = UFOE_MOUT_EN_SPLIT1;
 	} else if (cur == DDP_COMPONENT_OVL1 && next == DDP_COMPONENT_COLOR1) {
 		*addr = DISP_REG_CONFIG_DISP_OVL1_MOUT_EN;
 		value = OVL1_MOUT_EN_COLOR1;
@@ -140,6 +146,9 @@ static unsigned int mtk_ddp_sel_in(enum mtk_ddp_comp_id cur,
 	} else if (cur == DDP_COMPONENT_RDMA1 && next == DDP_COMPONENT_DPI0) {
 		*addr = DISP_REG_CONFIG_DPI_SEL_IN;
 		value = DPI0_SEL_IN_RDMA1;
+	} else if (cur == DDP_COMPONENT_SPLIT1 && next == DDP_COMPONENT_DSI0) {
+		*addr = DISP_REG_CONFIG_DSI_SEL_IN;
+		value = DSI0_SEL_IN_SPLIT;
 	} else if (cur == DDP_COMPONENT_OVL1 && next == DDP_COMPONENT_COLOR1) {
 		*addr = DISP_REG_CONFIG_DISP_COLOR1_SEL_IN;
 		value = COLOR1_SEL_IN_OVL1;

@@ -36,6 +36,7 @@ enum mtk_ddp_comp_type {
 	MTK_DISP_PWM,
 	MTK_DISP_MUTEX,
 	MTK_DISP_OD,
+	MTK_DISP_SPLIT,
 	MTK_DDP_COMP_TYPE_MAX,
 };
 
@@ -58,6 +59,8 @@ enum mtk_ddp_comp_id {
 	DDP_COMPONENT_UFOE,
 	DDP_COMPONENT_WDMA0,
 	DDP_COMPONENT_WDMA1,
+	DDP_COMPONENT_SPLIT0,
+	DDP_COMPONENT_SPLIT1,
 	DDP_COMPONENT_ID_MAX,
 };
 
@@ -95,6 +98,7 @@ struct mtk_ddp_comp {
 	enum mtk_ddp_comp_id id;
 	enum mtk_ddp_comp_type type;
 	const struct mtk_ddp_comp_funcs *funcs;
+	bool dual_dsi_mode;
 };
 
 static inline void mtk_ddp_comp_config(struct mtk_ddp_comp *comp,
@@ -187,5 +191,7 @@ int mtk_ddp_comp_init(struct device *dev, struct device_node *comp_node,
 		      const struct mtk_ddp_comp_funcs *funcs);
 int mtk_ddp_comp_register(struct drm_device *drm, struct mtk_ddp_comp *comp);
 void mtk_ddp_comp_unregister(struct drm_device *drm, struct mtk_ddp_comp *comp);
+void mtk_ddp_comp_set_dual_dsi_mode(struct mtk_ddp_comp *comp,
+				    bool dual_dsi_mode);
 
 #endif /* MTK_DRM_DDP_COMP_H */

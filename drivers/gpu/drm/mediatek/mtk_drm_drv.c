@@ -334,6 +334,18 @@ static const enum mtk_ddp_comp_id mtk_ddp_main[] = {
 	DDP_COMPONENT_PWM0,
 };
 
+static const enum mtk_ddp_comp_id mtk_ddp_split_dsi[] = {
+	DDP_COMPONENT_OVL0,
+	DDP_COMPONENT_COLOR0,
+	DDP_COMPONENT_AAL,
+	DDP_COMPONENT_OD,
+	DDP_COMPONENT_RDMA0,
+	DDP_COMPONENT_UFOE,
+	DDP_COMPONENT_SPLIT1,
+	DDP_COMPONENT_DSI0,
+	DDP_COMPONENT_PWM0,
+};
+
 static const enum mtk_ddp_comp_id mtk_ddp_ext[] = {
 	DDP_COMPONENT_OVL1,
 	DDP_COMPONENT_COLOR1,
@@ -347,6 +359,9 @@ static int mtk_drm_kms_init(struct drm_device *drm)
 	struct mtk_drm_private *private = drm->dev_private;
 	struct platform_device *pdev;
 	struct device_node *np;
+	const enum mtk_ddp_comp_id *dsi_stream;
+	int dsi_stream_len;
+	bool dual_dsi_mode;
 	int ret;
 
 	if (!iommu_present(&platform_bus_type))
@@ -381,19 +396,42 @@ static int mtk_drm_kms_init(struct drm_device *drm)
 
 	/*
 	 * We currently support two fixed data streams, each optional,
-	 * and each statically assigned to a crtc:
+	 * and each statically assigned to a crtc.
+	 *
+	 * By default, UFOE directly drives DSI0:
 	 * OVL0 -> COLOR0 -> AAL -> OD -> RDMA0 -> UFOE -> DSI0 ...
+	 *
+	 * However, if the dsi0 node has "mediatek,dual-dsi-mode" set,
+	 * UFOE will use SPLIT1 to dual drive both DSI0 and DSI1:
+	 * OVL0 -> COLOR0 -> AAL -> OD -> RDMA0 -> UFOE -> SPLIT1 -> DSI0 ...
+	 *                                                       \-> DSI1 ...
 	 */
-	ret = mtk_drm_crtc_create(drm, mtk_ddp_main, ARRAY_SIZE(mtk_ddp_main));
+	np = private->comp_node[DDP_COMPONENT_DSI0];
+	if (np && of_property_read_bool(np, "mediatek,dual-dsi-mode")) {
+		dsi_stream = mtk_ddp_split_dsi;
+		dsi_stream_len = ARRAY_SIZE(mtk_ddp_split_dsi);
+		dual_dsi_mode = true;
+	} else {
+		dsi_stream = mtk_ddp_main;
+		dsi_stream_len = ARRAY_SIZE(mtk_ddp_main);
+		dual_dsi_mode = false;
+	}
+	ret = mtk_drm_crtc_create(drm, dsi_stream, dsi_stream_len,
+				  dual_dsi_mode);
 	if (ret < 0)
 		goto err_component_unbind;
-	/* ... and OVL1 -> COLOR1 -> GAMMA -> RDMA1 -> DPI0. */
-	ret = mtk_drm_crtc_create(drm, mtk_ddp_ext, ARRAY_SIZE(mtk_ddp_ext));
+
+	/*
+	 * The DPI stream is directly driven from RDMA1:
+	 * ... and OVL1 -> COLOR1 -> GAMMA -> RDMA1 -> DPI0
+	 */
+	ret = mtk_drm_crtc_create(drm, mtk_ddp_ext, ARRAY_SIZE(mtk_ddp_ext),
+				  false);
 	if (ret < 0)
 		goto err_component_unbind;
 
 	/* Use OVL device for all DMA memory allocations */
-	np = private->comp_node[mtk_ddp_main[0]] ?:
+	np = private->comp_node[dsi_stream[0]] ?:
 	     private->comp_node[mtk_ddp_ext[0]];
 	pdev = of_find_device_by_node(np);
 	if (!pdev) {
@@ -565,6 +603,7 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
 	{ .compatible = "mediatek,mt8173-disp-mutex", .data = (void *)MTK_DISP_MUTEX },
 	{ .compatible = "mediatek,mt8173-disp-pwm",   .data = (void *)MTK_DISP_PWM },
 	{ .compatible = "mediatek,mt8173-disp-od",    .data = (void *)MTK_DISP_OD },
+	{ .compatible = "mediatek,mt8173-disp-split", .data = (void *)MTK_DISP_SPLIT },
 	{ }
 };
 

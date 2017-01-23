@@ -258,6 +258,12 @@ int rockchip_dmcfreq_register_clk_sync_nb(struct devfreq *devfreq,
 	int ret;
 
 	mutex_lock(&dmcfreq->en_lock);
+	/*
+	 * We have a short amount of time (~1ms or less typically) to run
+	 * dmcfreq after we sync with the notifier, so syncing with more than
+	 * one notifier is not generally possible. Thus, if more than one sync
+	 * notifier is registered, disable dmcfreq.
+	 */
 	if (dmcfreq->num_sync_nb == 1 && dmcfreq->disable_count <= 0) {
 		rockchip_ddrclk_set_timeout_en(dmcfreq->dmc_clk, false);
 		devfreq_suspend_device(devfreq);

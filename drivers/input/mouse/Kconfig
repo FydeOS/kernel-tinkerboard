@@ -419,4 +419,12 @@ config MOUSE_NAVPOINT_PXA27x
 	  To compile this driver as a module, choose M here: the
 	  module will be called navpoint.
 
+config MOUSE_CENTROIDING
+	tristate "Google Centroiding Touchpad support"
+	depends on I2C
+	help
+	  This driver adds support for Google Centroiding touchpads.
+
+	  Say Y here if you have a Google Centroiding Touchpad.
+
 endif

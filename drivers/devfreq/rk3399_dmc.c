@@ -737,10 +737,6 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 
 static int rk3399_dmcfreq_remove(struct platform_device *pdev)
 {
-	struct rk3399_dmcfreq *dmcfreq = platform_get_drvdata(pdev);
-
-	regulator_put(dmcfreq->vdd_center);
-
 	return devfreq_remove_governor(&rk3399_dfi_governor);
 }
 

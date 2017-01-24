@@ -815,8 +815,6 @@ ap_i2c_audio: &i2c8 {
 &dmc {
 	status = "okay";
 	center-supply = <&ppvar_centerlogic>;
-	upthreshold = <25>;
-	downdifferential = <15>;
 	rockchip,odt_dis_freq = <666000000>;
 	rockchip,pd_idle_ns = <160>;
 	rockchip,sr_idle_ns = <10240>;

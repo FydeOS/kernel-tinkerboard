@@ -30,7 +30,7 @@ static inline struct regulator_init_data
 				    struct device_node *node,
 				    const struct regulator_desc *desc)
 {
-	return ERR_PTR(-ENOMEM);
+	return NULL;
 }
 
 static inline int of_regulator_match(struct device *dev,

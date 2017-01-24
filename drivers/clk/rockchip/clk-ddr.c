@@ -91,6 +91,7 @@ void rockchip_ddrclk_set_timeout_en(struct clk *clk, bool enable)
 	ddrclk->timeout_en = enable;
 	mutex_unlock(&ddrclk->lock);
 }
+EXPORT_SYMBOL(rockchip_ddrclk_set_timeout_en);
 
 int rockchip_ddrclk_register_sync_nb(struct clk *clk, struct notifier_block *nb)
 {

@@ -73,7 +73,6 @@ struct rockchip_pmu {
 	const struct rockchip_pmu_info *info;
 	struct mutex mutex; /* mutex lock for pmu */
 	struct genpd_onecell_data genpd_data;
-	struct devfreq *devfreq;
 	struct notifier_block dmc_nb;
 	struct generic_pm_domain *domains[];
 };
@@ -592,18 +591,23 @@ static int dmc_notify(struct notifier_block *nb, unsigned long event,
 	return NOTIFY_OK;
 }
 
-int pd_register_notify_to_dmc(struct devfreq *devfreq)
+int pd_register_dmc_nb(struct devfreq *devfreq)
 {
 	if (!dmc_pmu)
 		return -EPROBE_DEFER;
 
-	dmc_pmu->devfreq = devfreq;
 	dmc_pmu->dmc_nb.notifier_call = dmc_notify;
-	devfreq_register_notifier(dmc_pmu->devfreq, &dmc_pmu->dmc_nb,
-				  DEVFREQ_TRANSITION_NOTIFIER);
-	return 0;
+	return devfreq_register_notifier(devfreq, &dmc_pmu->dmc_nb,
+					 DEVFREQ_TRANSITION_NOTIFIER);
 }
-EXPORT_SYMBOL(pd_register_notify_to_dmc);
+EXPORT_SYMBOL(pd_register_dmc_nb);
+
+int pd_unregister_dmc_nb(struct devfreq *devfreq)
+{
+	return devfreq_unregister_notifier(devfreq, &dmc_pmu->dmc_nb,
+					   DEVFREQ_TRANSITION_NOTIFIER);
+}
+EXPORT_SYMBOL(pd_unregister_dmc_nb);
 
 static int rockchip_pm_domain_probe(struct platform_device *pdev)
 {

@@ -58,7 +58,8 @@ int rockchip_dmcfreq_unregister_clk_sync_nb(struct devfreq *devfreq,
 					  struct notifier_block *nb);
 int rockchip_dmcfreq_block(struct devfreq *devfreq);
 int rockchip_dmcfreq_unblock(struct devfreq *devfreq);
-int pd_register_notify_to_dmc(struct devfreq *devfreq);
+int pd_register_dmc_nb(struct devfreq *devfreq);
+int pd_unregister_dmc_nb(struct devfreq *devfreq);
 #else
 static inline int rockchip_dmcfreq_register_clk_sync_nb(struct devfreq *devfreq,
 		struct notifier_block *nb) { return 0; }
@@ -68,7 +69,7 @@ static inline int rockchip_dmcfreq_unregister_clk_sync_nb(
 static inline int rockchip_dmcfreq_block(struct devfreq *devfreq) { return 0; }
 static inline int rockchip_dmcfreq_unblock(struct devfreq *devfreq)
 { return 0; }
-static inline int pd_register_notify_to_dmc(struct devfreq *devfreq)
-{ return 0; }
+static inline int pd_register_dmc_nb(struct devfreq *devfreq) { return 0; }
+static inline int pd_unregister_dmc_nb(struct devfreq *devfreq) { return 0; }
 #endif
 #endif

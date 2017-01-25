@@ -723,7 +723,7 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 	data->devfreq->min_freq = rate;
 	rcu_read_unlock();
 
-	ret = pd_register_notify_to_dmc(data->devfreq);
+	ret = pd_register_dmc_nb(data->devfreq);
 	if (ret < 0)
 		return ret;
 
@@ -737,6 +737,10 @@ static int rk3399_dmcfreq_probe(struct platform_device *pdev)
 
 static int rk3399_dmcfreq_remove(struct platform_device *pdev)
 {
+	struct rk3399_dmcfreq *dmcfreq = dev_get_drvdata(&pdev->dev);
+
+	WARN_ON(pd_unregister_dmc_nb(dmcfreq->devfreq));
+
 	return devfreq_remove_governor(&rk3399_dfi_governor);
 }
 

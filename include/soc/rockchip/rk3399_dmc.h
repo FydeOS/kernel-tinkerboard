@@ -16,6 +16,7 @@
 #define __SOC_RK3399_DMC_H
 
 #include <linux/devfreq.h>
+#include <linux/kthread.h>
 #include <linux/notifier.h>
 #include <linux/workqueue.h>
 
@@ -47,8 +48,15 @@ struct rk3399_dmcfreq {
 	unsigned long volt;
 	struct delayed_work throttle_work;
 	unsigned int target_load;
+	unsigned int boosted_target_load;
 	unsigned int hysteresis;
 	unsigned int down_throttle_ms;
+	struct task_struct *boost_thread;
+	wait_queue_head_t boost_thread_wq;
+	struct notifier_block cpufreq_policy_nb;
+	struct notifier_block cpufreq_trans_nb;
+	struct notifier_block cpu_hotplug_nb;
+	bool was_boosted;
 };
 
 #if IS_ENABLED(CONFIG_ARM_RK3399_DMC_DEVFREQ)

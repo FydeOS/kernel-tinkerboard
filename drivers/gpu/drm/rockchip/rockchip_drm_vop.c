@@ -629,6 +629,7 @@ void rockchip_drm_set_win_enabled(struct drm_crtc *crtc, bool enabled)
 
 	spin_unlock(&vop->reg_lock);
 }
+EXPORT_SYMBOL(rockchip_drm_set_win_enabled);
 
 static void vop_crtc_disable(struct drm_crtc *crtc)
 {

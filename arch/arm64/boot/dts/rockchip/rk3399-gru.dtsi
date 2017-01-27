@@ -628,7 +628,7 @@
 		<&cru PCLK_PERILP0>, <&cru ACLK_CCI>,
 		<&cru HCLK_PERILP1>, <&cru PCLK_PERILP1>;
 	assigned-clock-rates =
-		<594000000>, <800000000>,
+		<600000000>, <800000000>,
 		<1000000000>,
 		<150000000>, <75000000>,
 		<37500000>,

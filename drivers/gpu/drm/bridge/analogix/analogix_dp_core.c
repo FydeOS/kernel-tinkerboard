@@ -1711,6 +1711,15 @@ void analogix_dp_unbind(struct device *dev, struct device *master,
 }
 EXPORT_SYMBOL_GPL(analogix_dp_unbind);
 
+void analogix_dp_shutdown(struct device *dev)
+{
+	struct analogix_dp_device *dp = dev_get_drvdata(dev);
+
+	if (dp->plat_data->cleanup)
+		dp->plat_data->cleanup(dp->plat_data);
+}
+EXPORT_SYMBOL_GPL(analogix_dp_shutdown);
+
 #ifdef CONFIG_PM
 int analogix_dp_suspend(struct device *dev)
 {

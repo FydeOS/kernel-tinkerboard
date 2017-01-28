@@ -48,5 +48,6 @@ int analogix_dp_suspend(struct device *dev);
 int analogix_dp_bind(struct device *dev, struct drm_device *drm_dev,
 		     struct analogix_dp_plat_data *plat_data);
 void analogix_dp_unbind(struct device *dev, struct device *master, void *data);
+void analogix_dp_shutdown(struct device *dev);
 
 #endif /* _ANALOGIX_DP_H_ */

@@ -36,6 +36,7 @@ struct analogix_dp_plat_data {
 		      struct drm_connector *);
 	int (*get_modes)(struct analogix_dp_plat_data *,
 			 struct drm_connector *);
+	void (*cleanup)(struct analogix_dp_plat_data *);
 };
 
 int analogix_dp_enable_psr(struct device *dev);

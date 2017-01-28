@@ -1697,6 +1697,9 @@ void analogix_dp_unbind(struct device *dev, struct device *master,
 {
 	struct analogix_dp_device *dp = dev_get_drvdata(dev);
 
+	if (dp->plat_data->cleanup)
+		dp->plat_data->cleanup(dp->plat_data);
+
 	analogix_dp_bridge_disable(dp->bridge);
 
 	if (dp->plat_data->panel) {

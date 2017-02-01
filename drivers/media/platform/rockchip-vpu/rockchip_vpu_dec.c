@@ -35,9 +35,6 @@
 #include "rockchip_vpu_dec.h"
 #include "rockchip_vpu_hw.h"
 
-#define DEF_SRC_FMT_DEC				V4L2_PIX_FMT_H264_SLICE
-#define DEF_DST_FMT_DEC				V4L2_PIX_FMT_NV12
-
 #define ROCKCHIP_H264_MAX_SLICES_PER_FRAME	16
 
 static const struct rockchip_vpu_fmt *find_format(struct rockchip_vpu_dev *dev,
@@ -54,6 +51,22 @@ static const struct rockchip_vpu_fmt *find_format(struct rockchip_vpu_dev *dev,
 			return &formats[i];
 	}
 
+	return NULL;
+}
+
+static const struct rockchip_vpu_fmt *get_def_fmt(struct rockchip_vpu_dev *dev,
+						  bool bitstream)
+{
+	const struct rockchip_vpu_fmt *formats = dev->variant->dec_fmts;
+	unsigned int i;
+
+	for (i = 0; i < dev->variant->num_dec_fmts; i++) {
+		if (bitstream == (formats[i].codec_mode != RK_VPU_CODEC_NONE))
+			return &formats[i];
+	}
+
+	/* There must be at least one raw and one coded format in the array. */
+	BUG_ON(i >= dev->variant->num_dec_fmts);
 	return NULL;
 }
 
@@ -1193,8 +1206,8 @@ int rockchip_vpu_dec_init(struct rockchip_vpu_ctx *ctx)
 {
 	struct rockchip_vpu_dev *vpu = ctx->dev;
 
-	ctx->vpu_src_fmt = find_format(vpu, DEF_SRC_FMT_DEC, false);
-	ctx->vpu_dst_fmt = find_format(vpu, DEF_DST_FMT_DEC, true);
+	ctx->vpu_src_fmt = get_def_fmt(vpu, true);
+	ctx->vpu_dst_fmt = get_def_fmt(vpu, false);
 
 	ctx->run_ops = &rockchip_vpu_dec_run_ops;
 

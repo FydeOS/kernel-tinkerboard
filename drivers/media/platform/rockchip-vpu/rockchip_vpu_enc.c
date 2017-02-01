@@ -41,9 +41,6 @@
 #include "rockchip_vpu_enc.h"
 #include "rockchip_vpu_hw.h"
 
-#define DEF_SRC_FMT_ENC				V4L2_PIX_FMT_NV12
-#define DEF_DST_FMT_ENC				V4L2_PIX_FMT_VP8
-
 #define V4L2_CID_PRIVATE_ROCKCHIP_HEADER	(V4L2_CID_CUSTOM_BASE + 0)
 #define V4L2_CID_PRIVATE_ROCKCHIP_REG_PARAMS	(V4L2_CID_CUSTOM_BASE + 1)
 #define V4L2_CID_PRIVATE_ROCKCHIP_HW_PARAMS	(V4L2_CID_CUSTOM_BASE + 2)
@@ -66,6 +63,22 @@ static const struct rockchip_vpu_fmt *find_format(struct rockchip_vpu_dev *dev,
 			return &formats[i];
 	}
 
+	return NULL;
+}
+
+static const struct rockchip_vpu_fmt *get_def_fmt(struct rockchip_vpu_dev *dev,
+						  bool bitstream)
+{
+	const struct rockchip_vpu_fmt *formats = dev->variant->enc_fmts;
+	unsigned int i;
+
+	for (i = 0; i < dev->variant->num_enc_fmts; i++) {
+		if (bitstream == (formats[i].codec_mode != RK_VPU_CODEC_NONE))
+			return &formats[i];
+	}
+
+	/* There must be at least one raw and one coded format in the array. */
+	BUG_ON(i >= dev->variant->num_enc_fmts);
 	return NULL;
 }
 
@@ -1311,8 +1324,8 @@ int rockchip_vpu_enc_init(struct rockchip_vpu_ctx *ctx)
 	struct rockchip_vpu_dev *vpu = ctx->dev;
 	int ret;
 
-	ctx->vpu_src_fmt = find_format(vpu, DEF_SRC_FMT_ENC, false);
-	ctx->vpu_dst_fmt = find_format(vpu, DEF_DST_FMT_ENC, true);
+	ctx->vpu_dst_fmt = get_def_fmt(vpu, true);
+	ctx->vpu_src_fmt = get_def_fmt(vpu, false);
 
 	ret = rockchip_vpu_aux_buf_alloc(vpu, &ctx->run.priv_src,
 					ROCKCHIP_HW_PARAMS_SIZE);

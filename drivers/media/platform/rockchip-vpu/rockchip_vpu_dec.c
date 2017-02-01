@@ -407,6 +407,24 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	return 0;
 }
 
+static void reset_dst_fmt(struct rockchip_vpu_ctx *ctx)
+{
+	struct rockchip_vpu_dev *vpu = ctx->dev;
+	const struct rockchip_vpu_fmt *vpu_src_fmt = ctx->vpu_src_fmt;
+	struct v4l2_pix_format_mplane *dst_fmt = &ctx->dst_fmt;
+
+	ctx->vpu_dst_fmt = get_def_fmt(vpu, false);
+
+	memset(dst_fmt, 0, sizeof(*dst_fmt));
+
+	dst_fmt->width = vpu_src_fmt->frmsize.min_width;
+	dst_fmt->height = vpu_src_fmt->frmsize.min_height;
+	dst_fmt->pixelformat = ctx->vpu_dst_fmt->fourcc;
+	dst_fmt->num_planes = ctx->vpu_dst_fmt->num_planes;
+
+	calculate_plane_sizes(vpu_src_fmt, ctx->vpu_dst_fmt, dst_fmt);
+}
+
 static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct v4l2_pix_format_mplane *pix_fmt_mp = &f->fmt.pix_mp;
@@ -441,6 +459,15 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 		ctx->vpu_src_fmt = find_format(dev, pix_fmt_mp->pixelformat,
 					       true);
 		ctx->src_fmt = *pix_fmt_mp;
+
+		/*
+		 * Current raw format might have become invalid with newly
+		 * selected codec, so reset it to default just to be safe and
+		 * keep internal driver state sane. User is mandated to set
+		 * the raw format again after we return, so we don't need
+		 * anything smarter.
+		 */
+		reset_dst_fmt(ctx);
 		break;
 
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE:
@@ -1215,7 +1242,7 @@ int rockchip_vpu_dec_init(struct rockchip_vpu_ctx *ctx)
 	struct rockchip_vpu_dev *vpu = ctx->dev;
 
 	ctx->vpu_src_fmt = get_def_fmt(vpu, true);
-	ctx->vpu_dst_fmt = get_def_fmt(vpu, false);
+	reset_dst_fmt(ctx);
 
 	ctx->run_ops = &rockchip_vpu_dec_run_ops;
 

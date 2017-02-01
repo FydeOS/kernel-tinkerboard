@@ -433,9 +433,10 @@ static int vidioc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
 }
 
 static void calculate_plane_sizes(const struct rockchip_vpu_fmt *fmt,
-				  unsigned int w, unsigned int h,
 				  struct v4l2_pix_format_mplane *pix_fmt_mp)
 {
+	unsigned int w = pix_fmt_mp->width;
+	unsigned int h = pix_fmt_mp->height;
 	int i;
 
 	for (i = 0; i < fmt->num_planes; ++i) {
@@ -459,7 +460,6 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	struct v4l2_pix_format_mplane *pix_fmt_mp = &f->fmt.pix_mp;
 	char str[5];
 	unsigned long dma_align;
-	unsigned int mb_width, mb_height;
 	int i;
 
 	vpu_debug_enter();
@@ -507,16 +507,15 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 		pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
 		pix_fmt_mp->height = round_up(pix_fmt_mp->height, MB_DIM);
 
-		mb_width = MB_WIDTH(pix_fmt_mp->width);
-		mb_height = MB_HEIGHT(pix_fmt_mp->height);
-
 		vpu_debug(0, "OUTPUT codec mode: %d\n", fmt->codec_mode);
 		vpu_debug(0, "fmt - w: %d, h: %d, mb - w: %d, h: %d\n",
 			  pix_fmt_mp->width, pix_fmt_mp->height,
-			  mb_width, mb_height);
+			  MB_WIDTH(pix_fmt_mp->width),
+			  MB_HEIGHT(pix_fmt_mp->height));
 
-		calculate_plane_sizes(fmt, mb_width * MB_DIM,
-					mb_height * MB_DIM, pix_fmt_mp);
+		/* Fill in remaining fields. */
+		calculate_plane_sizes(fmt, pix_fmt_mp);
+
 		dma_align = dma_get_cache_alignment();
 		for (i = 0; i < fmt->num_planes; i++) {
 			if (!IS_ALIGNED(pix_fmt_mp->plane_fmt[i].sizeimage,
@@ -1404,8 +1403,7 @@ int rockchip_vpu_enc_init_dummy_ctx(struct rockchip_vpu_dev *dev)
 	ctx->src_fmt.pixelformat = ctx->vpu_src_fmt->fourcc;
 	ctx->src_fmt.num_planes = ctx->vpu_src_fmt->num_planes;
 
-	calculate_plane_sizes(ctx->vpu_src_fmt, ctx->src_fmt.width,
-				ctx->src_fmt.height, &ctx->src_fmt);
+	calculate_plane_sizes(ctx->vpu_src_fmt, &ctx->src_fmt);
 
 	ctx->vpu_dst_fmt = find_format(dev, DUMMY_DST_FMT, true);
 	ctx->dst_fmt.width = ctx->src_fmt.width;

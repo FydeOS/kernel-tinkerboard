@@ -37,12 +37,28 @@ static const struct rockchip_vpu_fmt rk3399_vdec_fmts[] = {
 		.fourcc = V4L2_PIX_FMT_H264_SLICE,
 		.codec_mode = RK_VPU_CODEC_H264D,
 		.num_planes = 1,
+		.frmsize = {
+			.min_width = 48,
+			.max_width = 3840,
+			.step_width = MB_DIM,
+			.min_height = 48,
+			.max_height = 2160,
+			.step_height = MB_DIM,
+		},
 	},
 	{
 		.name = "Frames of VP9 Encoded Stream",
 		.fourcc = V4L2_PIX_FMT_VP9_FRAME,
 		.codec_mode = RK_VPU_CODEC_VP9D,
 		.num_planes = 1,
+		.frmsize = {
+			.min_width = 48,
+			.max_width = 3840,
+			.step_width = SB_DIM,
+			.min_height = 48,
+			.max_height = 2176,
+			.step_height = SB_DIM,
+		},
 	},
 };
 

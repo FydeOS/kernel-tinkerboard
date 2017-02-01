@@ -64,12 +64,28 @@ static const struct rockchip_vpu_fmt rk3288_vpu_enc_fmts[] = {
 		.fourcc = V4L2_PIX_FMT_VP8,
 		.codec_mode = RK_VPU_CODEC_VP8E,
 		.num_planes = 1,
+		.frmsize = {
+			.min_width = 96,
+			.max_width = 1920,
+			.step_width = MB_DIM,
+			.min_height = 96,
+			.max_height = 1088,
+			.step_height = MB_DIM,
+		},
 	},
 	{
 		.name = "H264 Encoded Stream",
 		.fourcc = V4L2_PIX_FMT_H264,
 		.codec_mode = RK_VPU_CODEC_H264E,
 		.num_planes = 1,
+		.frmsize = {
+			.min_width = 96,
+			.max_width = 1920,
+			.step_width = MB_DIM,
+			.min_height = 96,
+			.max_height = 1088,
+			.step_height = MB_DIM,
+		},
 	},
 };
 
@@ -86,12 +102,28 @@ static const struct rockchip_vpu_fmt rk3288_vpu_dec_fmts[] = {
 		.fourcc = V4L2_PIX_FMT_H264_SLICE,
 		.codec_mode = RK_VPU_CODEC_H264D,
 		.num_planes = 1,
+		.frmsize = {
+			.min_width = 48,
+			.max_width = 3840,
+			.step_width = MB_DIM,
+			.min_height = 48,
+			.max_height = 2160,
+			.step_height = MB_DIM,
+		},
 	},
 	{
 		.name = "Frames of VP8 Encoded Stream",
 		.fourcc = V4L2_PIX_FMT_VP8_FRAME,
 		.codec_mode = RK_VPU_CODEC_VP8D,
 		.num_planes = 1,
+		.frmsize = {
+			.min_width = 48,
+			.max_width = 3840,
+			.step_width = MB_DIM,
+			.min_height = 48,
+			.max_height = 2160,
+			.step_height = MB_DIM,
+		},
 	},
 };
 

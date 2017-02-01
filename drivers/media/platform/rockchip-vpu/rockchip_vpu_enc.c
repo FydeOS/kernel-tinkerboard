@@ -44,11 +44,6 @@
 #define DEF_SRC_FMT_ENC				V4L2_PIX_FMT_NV12
 #define DEF_DST_FMT_ENC				V4L2_PIX_FMT_VP8
 
-#define ROCKCHIP_ENC_MIN_WIDTH			96U
-#define ROCKCHIP_ENC_MAX_WIDTH			1920U
-#define ROCKCHIP_ENC_MIN_HEIGHT			96U
-#define ROCKCHIP_ENC_MAX_HEIGHT			1088U
-
 #define V4L2_CID_PRIVATE_ROCKCHIP_HEADER	(V4L2_CID_CUSTOM_BASE + 0)
 #define V4L2_CID_PRIVATE_ROCKCHIP_REG_PARAMS	(V4L2_CID_CUSTOM_BASE + 1)
 #define V4L2_CID_PRIVATE_ROCKCHIP_HW_PARAMS	(V4L2_CID_CUSTOM_BASE + 2)
@@ -326,7 +321,6 @@ static int vidioc_enum_framesizes(struct file *file, void *prov,
 				  struct v4l2_frmsizeenum *fsize)
 {
 	struct rockchip_vpu_dev *dev = video_drvdata(file);
-	struct v4l2_frmsize_stepwise *s = &fsize->stepwise;
 	const struct rockchip_vpu_fmt *fmt;
 
 	if (fsize->index != 0) {
@@ -343,13 +337,7 @@ static int vidioc_enum_framesizes(struct file *file, void *prov,
 	}
 
 	fsize->type = V4L2_FRMSIZE_TYPE_STEPWISE;
-
-	s->min_width = ROCKCHIP_ENC_MIN_WIDTH;
-	s->max_width = ROCKCHIP_ENC_MAX_WIDTH;
-	s->step_width = MB_DIM;
-	s->min_height = ROCKCHIP_ENC_MIN_HEIGHT;
-	s->max_height = ROCKCHIP_ENC_MAX_HEIGHT;
-	s->step_height = MB_DIM;
+	fsize->stepwise = fmt->frmsize;
 
 	return 0;
 }
@@ -453,6 +441,7 @@ static void calculate_plane_sizes(const struct rockchip_vpu_fmt *fmt,
 static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct rockchip_vpu_dev *dev = video_drvdata(file);
+	struct rockchip_vpu_ctx *ctx = fh_to_ctx(priv);
 	const struct rockchip_vpu_fmt *fmt;
 	struct v4l2_pix_format_mplane *pix_fmt_mp = &f->fmt.pix_mp;
 	char str[5];
@@ -496,11 +485,11 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 		/* Limit to hardware min/max. */
 		pix_fmt_mp->width = clamp(pix_fmt_mp->width,
-				ROCKCHIP_ENC_MIN_WIDTH,
-				ROCKCHIP_ENC_MAX_WIDTH);
+				ctx->vpu_dst_fmt->frmsize.min_width,
+				ctx->vpu_dst_fmt->frmsize.max_width);
 		pix_fmt_mp->height = clamp(pix_fmt_mp->height,
-				ROCKCHIP_ENC_MIN_HEIGHT,
-				ROCKCHIP_ENC_MAX_HEIGHT);
+				ctx->vpu_dst_fmt->frmsize.min_height,
+				ctx->vpu_dst_fmt->frmsize.max_height);
 		/* Round up to macroblocks. */
 		pix_fmt_mp->width = round_up(pix_fmt_mp->width, MB_DIM);
 		pix_fmt_mp->height = round_up(pix_fmt_mp->height, MB_DIM);

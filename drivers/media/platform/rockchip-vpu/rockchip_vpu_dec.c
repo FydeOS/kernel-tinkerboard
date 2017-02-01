@@ -38,11 +38,6 @@
 #define DEF_SRC_FMT_DEC				V4L2_PIX_FMT_H264_SLICE
 #define DEF_DST_FMT_DEC				V4L2_PIX_FMT_NV12
 
-#define ROCKCHIP_DEC_MIN_WIDTH			48U
-#define ROCKCHIP_DEC_MAX_WIDTH			3840U
-#define ROCKCHIP_DEC_MIN_HEIGHT			48U
-#define ROCKCHIP_DEC_MAX_HEIGHT			2160U
-
 #define ROCKCHIP_H264_MAX_SLICES_PER_FRAME	16
 
 static const struct rockchip_vpu_fmt *find_format(struct rockchip_vpu_dev *dev,
@@ -187,7 +182,6 @@ static int vidioc_enum_framesizes(struct file *file, void *prov,
 				  struct v4l2_frmsizeenum *fsize)
 {
 	struct rockchip_vpu_dev *dev = video_drvdata(file);
-	struct v4l2_frmsize_stepwise *s = &fsize->stepwise;
 	const struct rockchip_vpu_fmt *fmt;
 
 	if (fsize->index != 0) {
@@ -204,13 +198,7 @@ static int vidioc_enum_framesizes(struct file *file, void *prov,
 	}
 
 	fsize->type = V4L2_FRMSIZE_TYPE_STEPWISE;
-
-	s->min_width = ROCKCHIP_DEC_MIN_WIDTH;
-	s->max_width = ROCKCHIP_DEC_MAX_WIDTH;
-	s->step_width = MB_DIM;
-	s->min_height = ROCKCHIP_DEC_MIN_HEIGHT;
-	s->max_height = ROCKCHIP_DEC_MAX_HEIGHT;
-	s->step_height = MB_DIM;
+	fsize->stepwise = fmt->frmsize;
 
 	return 0;
 }
@@ -336,11 +324,11 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 		/* Limit to hardware min/max. */
 		pix_fmt_mp->width = clamp(pix_fmt_mp->width,
-				ROCKCHIP_DEC_MIN_WIDTH,
-				ROCKCHIP_DEC_MAX_WIDTH);
+				ctx->vpu_src_fmt->frmsize.min_width,
+				ctx->vpu_src_fmt->frmsize.max_width);
 		pix_fmt_mp->height = clamp(pix_fmt_mp->height,
-				ROCKCHIP_DEC_MIN_HEIGHT,
-				ROCKCHIP_DEC_MAX_HEIGHT);
+				ctx->vpu_src_fmt->frmsize.min_height,
+				ctx->vpu_src_fmt->frmsize.max_height);
 
 		/* Round up to macroblocks. */
 		if (ctx->vpu_src_fmt->fourcc == V4L2_PIX_FMT_VP9_FRAME) {

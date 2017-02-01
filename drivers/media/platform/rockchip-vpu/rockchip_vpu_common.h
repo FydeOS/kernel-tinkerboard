@@ -401,6 +401,7 @@ struct rockchip_vpu_ctx {
  * @num_planes:	Number of planes used by this format.
  * @depth:	Depth of each plane in bits per pixel.
  * @enc_fmt:	Format identifier for encoder registers.
+ * @frmsize:	Supported range of frame sizes (only for bitstream formats).
  */
 struct rockchip_vpu_fmt {
 	char *name;
@@ -409,6 +410,7 @@ struct rockchip_vpu_fmt {
 	int num_planes;
 	u8 depth[VIDEO_MAX_PLANES];
 	enum rk3288_vpu_enc_fmt enc_fmt;
+	struct v4l2_frmsize_stepwise frmsize;
 };
 
 /**

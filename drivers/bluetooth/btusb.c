@@ -363,7 +363,7 @@ static const struct usb_device_id blacklist_table[] = {
 #define BTUSB_BOOTING		9
 #define BTUSB_RESET_RESUME	10
 #define BTUSB_DIAG_RUNNING	11
-#define BTUSB_OOB_WAKE_DISABLED	12
+#define BTUSB_OOB_WAKE_ENABLED	12
 
 struct btusb_data {
 	struct hci_dev       *hdev;
@@ -2773,7 +2773,7 @@ static irqreturn_t btusb_oob_wake_handler(int irq, void *priv)
 	pm_wakeup_event(&data->udev->dev, 0);
 
 	/* Disable only if not already disabled (keep it balanced) */
-	if (!test_and_set_bit(BTUSB_OOB_WAKE_DISABLED, &data->flags)) {
+	if (test_and_clear_bit(BTUSB_OOB_WAKE_ENABLED, &data->flags)) {
 		disable_irq_nosync(irq);
 		disable_irq_wake(irq);
 	}
@@ -2793,7 +2793,7 @@ static int btusb_config_oob_wake(struct hci_dev *hdev)
 	struct device *dev = &data->udev->dev;
 	int irq, ret;
 
-	set_bit(BTUSB_OOB_WAKE_DISABLED, &data->flags);
+	clear_bit(BTUSB_OOB_WAKE_ENABLED, &data->flags);
 
 	if (!of_match_device(btusb_match_table, dev))
 		return 0;
@@ -3199,7 +3199,7 @@ static int btusb_suspend(struct usb_interface *intf, pm_message_t message)
 	usb_kill_anchored_urbs(&data->tx_anchor);
 
 	if (data->oob_wake_irq && device_may_wakeup(&data->udev->dev)) {
-		clear_bit(BTUSB_OOB_WAKE_DISABLED, &data->flags);
+		set_bit(BTUSB_OOB_WAKE_ENABLED, &data->flags);
 		enable_irq_wake(data->oob_wake_irq);
 		enable_irq(data->oob_wake_irq);
 	}
@@ -3242,7 +3242,7 @@ static int btusb_resume(struct usb_interface *intf)
 		return 0;
 
 	/* Disable only if not already disabled (keep it balanced) */
-	if (!test_and_set_bit(BTUSB_OOB_WAKE_DISABLED, &data->flags)) {
+	if (test_and_clear_bit(BTUSB_OOB_WAKE_ENABLED, &data->flags)) {
 		disable_irq(data->oob_wake_irq);
 		disable_irq_wake(data->oob_wake_irq);
 	}

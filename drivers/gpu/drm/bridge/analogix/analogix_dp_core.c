@@ -1270,8 +1270,8 @@ static int analogix_dp_set_bridge(struct analogix_dp_device *dp)
 
 	analogix_dp_set_analog_power_down(dp, POWER_ALL, 0);
 
-	if (dp->plat_data->power_on)
-		dp->plat_data->power_on(dp->plat_data);
+	if (dp->plat_data->power_on_start)
+		dp->plat_data->power_on_start(dp->plat_data);
 
 	phy_power_on(dp->phy);
 
@@ -1293,6 +1293,9 @@ static int analogix_dp_set_bridge(struct analogix_dp_device *dp)
 		DRM_ERROR("dp commit error, ret = %d\n", ret);
 		goto out_dp_init;
 	}
+
+	if (dp->plat_data->power_on_end)
+		dp->plat_data->power_on_end(dp->plat_data);
 
 	enable_irq(dp->irq);
 	return 0;

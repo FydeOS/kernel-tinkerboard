@@ -1004,9 +1004,13 @@ static int vop_cursor_update(struct drm_plane *plane,
 	swap(plane_state, plane->state);
 
 	if (vop->is_enabled) {
-		mutex_lock(&commit->hw_lock);
+		struct drm_encoder *encoder;
 
-		rockchip_drm_psr_flush(crtc);
+		drm_for_each_encoder_mask(encoder, dev,
+					  crtc->state->encoder_mask)
+			rockchip_drm_psr_inhibit_get(encoder);
+
+		mutex_lock(&commit->hw_lock);
 
 		if (fb)
 			funcs->atomic_update(plane, plane_state);
@@ -1028,6 +1032,10 @@ static int vop_cursor_update(struct drm_plane *plane,
 		}
 
 		mutex_unlock(&commit->hw_lock);
+
+		drm_for_each_encoder_mask(encoder, dev,
+					  crtc->state->encoder_mask)
+			rockchip_drm_psr_inhibit_put(encoder);
 	}
 
 err_destroy:

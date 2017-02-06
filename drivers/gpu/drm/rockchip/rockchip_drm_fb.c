@@ -295,14 +295,39 @@ rockchip_drm_check_and_unblock_dmcfreq(struct rockchip_atomic_commit *commit)
 }
 
 static void
-rockchip_drm_psr_flush_state(struct drm_atomic_state *state)
+rockchip_drm_psr_inhibit_get_state(struct drm_atomic_state *state)
 {
-	struct drm_crtc_state *crtc_state;
 	struct drm_crtc *crtc;
+	struct drm_crtc_state *crtc_state;
+	struct drm_encoder *encoder;
+	u32 encoder_mask = 0;
 	int i;
 
-	for_each_crtc_in_state(state, crtc, crtc_state, i)
-		rockchip_drm_psr_flush(crtc);
+	for_each_crtc_in_state(state, crtc, crtc_state, i) {
+		encoder_mask |= crtc_state->encoder_mask;
+		encoder_mask |= crtc->state->encoder_mask;
+	}
+
+	drm_for_each_encoder_mask(encoder, state->dev, encoder_mask)
+		rockchip_drm_psr_inhibit_get(encoder);
+}
+
+static void
+rockchip_drm_psr_inhibit_put_state(struct drm_atomic_state *state)
+{
+	struct drm_crtc *crtc;
+	struct drm_crtc_state *crtc_state;
+	struct drm_encoder *encoder;
+	u32 encoder_mask = 0;
+	int i;
+
+	for_each_crtc_in_state(state, crtc, crtc_state, i) {
+		encoder_mask |= crtc_state->encoder_mask;
+		encoder_mask |= crtc->state->encoder_mask;
+	}
+
+	drm_for_each_encoder_mask(encoder, state->dev, encoder_mask)
+		rockchip_drm_psr_inhibit_put(encoder);
 }
 
 static void
@@ -332,7 +357,7 @@ rockchip_atomic_commit_complete(struct rockchip_atomic_commit *commit)
 	 * See the kerneldoc entries for these three functions for more details.
 	 */
 
-	rockchip_drm_psr_flush_state(state);
+	rockchip_drm_psr_inhibit_get_state(state);
 
 	mutex_lock(&commit->hw_lock);
 
@@ -343,6 +368,8 @@ rockchip_atomic_commit_complete(struct rockchip_atomic_commit *commit)
 	drm_atomic_helper_commit_planes(dev, state, true);
 
 	mutex_unlock(&commit->hw_lock);
+
+	rockchip_drm_psr_inhibit_put_state(state);
 
 	drm_atomic_helper_wait_for_vblanks(dev, state);
 

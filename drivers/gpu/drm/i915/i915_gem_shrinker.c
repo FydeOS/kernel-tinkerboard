@@ -125,7 +125,7 @@ i915_gem_shrink(struct drm_i915_private *dev_priv,
 		unsigned int bit;
 	} phases[] = {
 		{ &dev_priv->mm.unbound_list, I915_SHRINK_UNBOUND },
-		{ &dev_priv->mm.bound_list, I915_SHRINK_BOUND },
+/*		{ &dev_priv->mm.bound_list, I915_SHRINK_BOUND },*/
 		{ NULL, 0 },
 	}, *phase;
 	unsigned long count = 0;
@@ -270,10 +270,10 @@ i915_gem_shrinker_count(struct shrinker *shrinker, struct shrink_control *sc)
 		if (can_release_pages(obj))
 			count += obj->base.size >> PAGE_SHIFT;
 
-	list_for_each_entry(obj, &dev_priv->mm.bound_list, global_list) {
+/*	list_for_each_entry(obj, &dev_priv->mm.bound_list, global_list) {
 		if (!obj->active && can_release_pages(obj))
 			count += obj->base.size >> PAGE_SHIFT;
-	}
+	}*/
 
 	if (unlock)
 		mutex_unlock(&dev->struct_mutex);

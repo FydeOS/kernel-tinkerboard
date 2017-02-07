@@ -1563,8 +1563,7 @@ int xhci_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 	if (ret || !urb->hcpriv)
 		goto done;
 	temp = readl(&xhci->op_regs->status);
-	if (temp == 0xffffffff || (xhci->xhc_state & XHCI_STATE_HALTED) ||
-	    (xhci->xhc_state & XHCI_STATE_REMOVING)) {
+	if (temp == 0xffffffff || (xhci->xhc_state & XHCI_STATE_HALTED)) {
 		xhci_dbg_trace(xhci, trace_xhci_dbg_cancel_urb,
 				"HW died, freeing TD.");
 		urb_priv = urb->hcpriv;
@@ -3666,8 +3665,7 @@ void xhci_free_dev(struct usb_hcd *hcd, struct usb_device *udev)
 	/* Don't disable the slot if the host controller is dead. */
 	state = readl(&xhci->op_regs->status);
 	if (state == 0xffffffff || (xhci->xhc_state & XHCI_STATE_DYING) ||
-			(xhci->xhc_state & XHCI_STATE_HALTED) ||
-			(xhci->xhc_state & XHCI_STATE_REMOVING)) {
+			(xhci->xhc_state & XHCI_STATE_HALTED)) {
 		xhci_free_virt_device(xhci, udev->slot_id);
 		spin_unlock_irqrestore(&xhci->lock, flags);
 		kfree(command);

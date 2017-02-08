@@ -73,8 +73,6 @@
 #define BYTES_PER_LONG			8
 #define TELEM_MASK_PCS_STATE		0xF
 
-#define TELEM_APL_S0IX_TOTAL_RES_ID	0x4800
-
 #define TELEM_DISABLE(x)		((x) &= ~(BIT(31)))
 #define TELEM_CLEAR_EVENTS(x)		((x) |= (BIT(30)))
 #define TELEM_ENABLE_SRAM_EVT_TRACE(x)	((x) &= ~(BIT(30) | BIT(24)))
@@ -975,30 +973,6 @@ static int telemetry_plt_read_eventlog(enum telemetry_unit telem_unit,
 	return ret;
 }
 
-static int telemetry_plt_read_s0ix_residency(u64 *data)
-{
-	struct telemetry_evtlog evtlog[TELEM_MAX_OS_ALLOCATED_EVENTS];
-	int ret, index;
-	u64 s0ix_res = 0;
-
-	ret = telemetry_read_eventlog(TELEM_IOSS, evtlog,
-				      TELEM_MAX_OS_ALLOCATED_EVENTS);
-	if (ret < 0)
-		return ret;
-
-	for (index = 0; index < ret; index++) {
-		if (evtlog[index].telem_evtid == TELEM_APL_S0IX_TOTAL_RES_ID) {
-			s0ix_res = evtlog[index].telem_evtlog;
-			continue;
-		}
-	}
-
-	/* Residency in usecs - field / 19.2e6 seconds */
-	*data = s0ix_res * 10 / 192;
-
-	return 0;
-}
-
 static int telemetry_plt_get_trace_verbosity(enum telemetry_unit telem_unit,
 					     u32 *verbosity)
 {
@@ -1118,7 +1092,6 @@ static const struct telemetry_core_ops telm_pltops = {
 	.read_eventlog = telemetry_plt_read_eventlog,
 	.reset_events = telemetry_plt_reset_events,
 	.add_events = telemetry_plt_add_events,
-	.read_s0ix_residency = telemetry_plt_read_s0ix_residency,
 };
 
 static int telemetry_pltdrv_probe(struct platform_device *pdev)

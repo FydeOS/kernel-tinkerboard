@@ -97,8 +97,6 @@ struct telemetry_core_ops {
 			  u32 *pss_evtmap, u32 *ioss_evtmap);
 
 	int (*reset_events)(void);
-
-	int (*read_s0ix_residency)(u64 *data);
 };
 
 int telemetry_set_pltdata(const struct telemetry_core_ops *ops,
@@ -145,7 +143,5 @@ int telemetry_set_trace_verbosity(enum telemetry_unit telem_unit,
 
 int telemetry_get_trace_verbosity(enum telemetry_unit telem_unit,
 				  u32 *verbosity);
-
-int telemetry_read_s0ix_residency(u64 *data);
 
 #endif /* INTEL_TELEMETRY_H */

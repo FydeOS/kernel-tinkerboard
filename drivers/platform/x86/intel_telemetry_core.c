@@ -95,11 +95,6 @@ static int telemetry_def_reset_events(void)
 	return 0;
 }
 
-static int telemetry_def_read_s0ix_residency(u64 *data)
-{
-	return 0;
-}
-
 static const struct telemetry_core_ops telm_defpltops = {
 	.set_sampling_period = telemetry_def_set_sampling_period,
 	.get_sampling_period = telemetry_def_get_sampling_period,
@@ -111,7 +106,6 @@ static const struct telemetry_core_ops telm_defpltops = {
 	.update_events = telemetry_def_update_events,
 	.reset_events = telemetry_def_reset_events,
 	.add_events = telemetry_def_add_events,
-	.read_s0ix_residency = telemetry_def_read_s0ix_residency,
 };
 
 /**
@@ -383,20 +377,6 @@ int telemetry_pltconfig_valid(void)
 		return -EINVAL;
 }
 EXPORT_SYMBOL_GPL(telemetry_pltconfig_valid);
-
-/**
- * telemetry_read_s0ix_residency() - Read s0ix residency.
- * @data: Out param that contains s0ix residency in usecs.
- *
- * This api exposes s0ix residency.
- *
- * Return: 0 - success, < 0 for failure
- */
-int telemetry_read_s0ix_residency(u64 *data)
-{
-	return telm_core_conf.telem_ops->read_s0ix_residency(data);
-}
-EXPORT_SYMBOL_GPL(telemetry_read_s0ix_residency);
 
 static inline int telemetry_get_pssevtname(enum telemetry_unit telem_unit,
 					   const char **name, int len)

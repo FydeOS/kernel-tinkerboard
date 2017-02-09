@@ -909,7 +909,6 @@ ap_i2c_audio: &i2c8 {
 		pinctrl-names = "default";
 		pinctrl-0 = <&ec_ap_int_l>;
 
-		google,cros-ec-spi-pre-delay = <30>;
 		interrupt-parent = <&gpio0>;
 		interrupts = <1 IRQ_TYPE_LEVEL_LOW>;
 		spi-max-frequency = <3000000>;

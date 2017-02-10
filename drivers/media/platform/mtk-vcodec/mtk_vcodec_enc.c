@@ -978,7 +978,7 @@ static int mtk_venc_encode_header(void *priv)
 	if (src_buf) {
 		src_vb2_v4l2 = to_vb2_v4l2_buffer(src_buf);
 		dst_vb2_v4l2 = to_vb2_v4l2_buffer(dst_buf);
-		dst_buf->timestamp = src_buf->timestamp;
+		dst_vb2_v4l2->timestamp = src_vb2_v4l2->timestamp;
 		dst_vb2_v4l2->timecode = src_vb2_v4l2->timecode;
 	} else {
 		mtk_v4l2_err("No timestamp for the header buffer.");
@@ -1118,7 +1118,7 @@ static void mtk_venc_worker(struct work_struct *work)
 	src_vb2_v4l2 = to_vb2_v4l2_buffer(src_buf);
 	dst_vb2_v4l2 = to_vb2_v4l2_buffer(dst_buf);
 
-	dst_buf->timestamp = src_buf->timestamp;
+	dst_vb2_v4l2->timestamp = src_vb2_v4l2->timestamp;
 	dst_vb2_v4l2->timecode = src_vb2_v4l2->timecode;
 
 	if (enc_result.is_key_frm)

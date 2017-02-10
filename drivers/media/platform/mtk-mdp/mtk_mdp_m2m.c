@@ -505,7 +505,7 @@ static void mtk_mdp_m2m_get_bufs(struct mtk_mdp_ctx *ctx)
 
 	src_vbuf = to_vb2_v4l2_buffer(src_vb);
 	dst_vbuf = to_vb2_v4l2_buffer(dst_vb);
-	dst_vbuf->vb2_buf.timestamp = src_vbuf->vb2_buf.timestamp;
+	dst_vbuf->timestamp = src_vbuf->timestamp;
 }
 
 static void mtk_mdp_process_done(void *priv, int vb_state)
@@ -524,7 +524,7 @@ static void mtk_mdp_process_done(void *priv, int vb_state)
 	dst_vb = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
 	dst_vbuf = to_vb2_v4l2_buffer(dst_vb);
 
-	dst_vbuf->vb2_buf.timestamp = src_vbuf->vb2_buf.timestamp;
+	dst_vbuf->timestamp = src_vbuf->timestamp;
 	dst_vbuf->timecode = src_vbuf->timecode;
 	dst_vbuf->flags &= ~V4L2_BUF_FLAG_TSTAMP_SRC_MASK;
 	dst_vbuf->flags |= src_vbuf->flags & V4L2_BUF_FLAG_TSTAMP_SRC_MASK;

@@ -399,8 +399,8 @@ static void mtk_vdec_worker(struct work_struct *work)
 		v4l2_m2m_job_finish(dev->m2m_dev_dec, ctx->m2m_ctx);
 		return;
 	}
-	dst_buf_info->vb.vb2_buf.timestamp
-			= src_buf_info->vb.vb2_buf.timestamp;
+	dst_buf_info->vb.timestamp
+			= src_buf_info->vb.timestamp;
 	dst_buf_info->vb.timecode
 			= src_buf_info->vb.timecode;
 	mutex_lock(&ctx->lock);
@@ -412,12 +412,12 @@ static void mtk_vdec_worker(struct work_struct *work)
 
 	if (ret) {
 		mtk_v4l2_err(
-			" <===[%d], src_buf[%d]%d sz=0x%zx pts=%llu dst_buf[%d] vdec_if_decode() ret=%d res_chg=%d===>",
+			" <===[%d], src_buf[%d]%d sz=0x%zx pts=%lu dst_buf[%d] vdec_if_decode() ret=%d res_chg=%d===>",
 			ctx->id,
 			src_buf->index,
 			src_buf_info->lastframe,
 			buf.size,
-			src_buf_info->vb.vb2_buf.timestamp,
+			src_buf_info->vb.timestamp.tv_sec,
 			dst_buf->index,
 			ret, res_chg);
 		src_buf = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);

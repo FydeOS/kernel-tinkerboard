@@ -750,7 +750,7 @@ const struct v4l2_ioctl_ops mtk_venc_ioctl_ops = {
 	.vidioc_s_selection		= vidioc_venc_s_selection,
 };
 
-static int vb2ops_venc_queue_setup(struct vb2_queue *vq,
+static int vb2ops_venc_queue_setup(struct vb2_queue *vq, const void *parg,
 				   unsigned int *nbuffers,
 				   unsigned int *nplanes,
 				   unsigned int sizes[], void *alloc_ctxs[])

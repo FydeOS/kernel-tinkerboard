@@ -1393,6 +1393,7 @@
 		rockchip,usb3-host-port = <0x2434 12 28>;
 		rockchip,external-psm = <0xe588 14 30>;
 		rockchip,pipe-status = <0xe5c0 0 0>;
+		rockchip,uphy-dp-sel = <0x6268 19 19>;
 		status = "disabled";
 
 		tcphy0_dp: dp-port {
@@ -1424,6 +1425,7 @@
 		rockchip,usb3-host-port = <0x2444 12 28>;
 		rockchip,external-psm = <0xe594 14 30>;
 		rockchip,pipe-status = <0xe5c0 16 16>;
+		rockchip,uphy-dp-sel = <0x6268 3 19>;
 		status = "disabled";
 
 		tcphy1_dp: dp-port {

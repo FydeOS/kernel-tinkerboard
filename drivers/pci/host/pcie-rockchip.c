@@ -1341,7 +1341,7 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 
 	err = devm_request_pci_bus_resources(dev, &res);
 	if (err)
-		goto err_vpcie;
+		goto err_free_res;
 
 	/* Get the I/O and memory ranges from DT */
 	resource_list_for_each_entry(win, &res) {
@@ -1374,11 +1374,12 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 
 	err = rockchip_cfg_atu(rockchip);
 	if (err)
-		goto err_vpcie;
+		goto err_free_res;
+
 	bus = pci_scan_root_bus(&pdev->dev, 0, &rockchip_pcie_ops, rockchip, &res);
 	if (!bus) {
 		err = -ENOMEM;
-		goto err_vpcie;
+		goto err_free_res;
 	}
 
 	pci_bus_size_bridges(bus);
@@ -1392,6 +1393,8 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 
 	return err;
 
+err_free_res:
+	pci_free_resource_list(&res);
 err_vpcie:
 	if (!IS_ERR(rockchip->vpcie3v3))
 		regulator_disable(rockchip->vpcie3v3);

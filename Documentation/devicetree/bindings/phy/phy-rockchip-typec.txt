@@ -33,6 +33,9 @@ offset, enable bit, write mask bit.
  - rockchip,pipe-status : the register of type-c phy pipe status.
    for type-c phy0, it must be <0xe5c0 0 0>;
    for type-c phy1, it must be <0xe5c0 16 16>;
+ - rockchip,uphy-dp-sel : the register of type-c phy enable DP function
+   for type-c phy0, it must be <0x6268 19 19>;
+   for type-c phy1, it must be <0x6268 3 19>;
 
 Required nodes : a sub-node is required for each port the phy provides.
 		 The sub-node name is used to identify dp or usb3 port,
@@ -62,6 +65,7 @@ Example:
 		rockchip,usb3tousb2-en = <0xe580 3 19>;
 		rockchip,external-psm = <0xe588 14 30>;
 		rockchip,pipe-status = <0xe5c0 0 0>;
+		rockchip,uphy-dp-sel = <0x6268 19 19>;
 
 		tcphy0_dp: dp-port {
 			#phy-cells = <0>;
@@ -90,6 +94,7 @@ Example:
 		rockchip,usb3tousb2-en = <0xe58c 3 19>;
 		rockchip,external-psm = <0xe594 14 30>;
 		rockchip,pipe-status = <0xe5c0 16 16>;
+		rockchip,uphy-dp-sel = <0x6268 3 19>;
 
 		tcphy1_dp: dp-port {
 			#phy-cells = <0>;

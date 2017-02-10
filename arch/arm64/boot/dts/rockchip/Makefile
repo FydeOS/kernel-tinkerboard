@@ -8,6 +8,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-gru-gru-r1.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-gru-gru-r2.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-gru-kevin-r5.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-gru-kevin-r6.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-gru-scarlet.dtb
 
 always		:= $(dtb-y)
 subdir-y	:= $(dts-dirs)

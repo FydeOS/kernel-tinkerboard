@@ -148,6 +148,7 @@ struct mtk_mdp_variant {
  * @id:		image processor device index (0..MTK_MDP_MAX_DEVS)
  * @comp:	MDP function components
  * @m2m_dev:	v4l2 memory-to-memory device data
+ * @alloc_ctx:	videobuf2 memory allocator context
  * @ctx_list:	list of struct mtk_mdp_ctx
  * @vdev:	video device for image processor driver
  * @v4l2_dev:	V4L2 device to register video devices for.
@@ -166,6 +167,7 @@ struct mtk_mdp_dev {
 	u16				id;
 	struct mtk_mdp_comp		*comp[MTK_MDP_COMP_ID_MAX];
 	struct v4l2_m2m_dev		*m2m_dev;
+	struct vb2_alloc_ctx		*alloc_ctx;
 	struct list_head		ctx_list;
 	struct video_device		*vdev;
 	struct v4l2_device		v4l2_dev;

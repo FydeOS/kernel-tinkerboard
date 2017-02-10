@@ -188,12 +188,19 @@ static int mtk_mdp_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, mdp);
 
-	vb2_dma_contig_set_max_seg_size(&pdev->dev, DMA_BIT_MASK(32));
+	mdp->alloc_ctx = vb2_dma_contig_init_ctx(dev);
+	if (IS_ERR(mdp->alloc_ctx)) {
+		ret = PTR_ERR(mdp->alloc_ctx);
+		goto err_alloc_ctx;
+	}
 
 	pm_runtime_enable(dev);
 	dev_dbg(dev, "mdp-%d registered successfully\n", mdp->id);
 
 	return 0;
+
+err_alloc_ctx:
+	mtk_mdp_unregister_m2m_device(mdp);
 
 err_m2m_register:
 	v4l2_device_unregister(&mdp->v4l2_dev);
@@ -220,7 +227,7 @@ static int mtk_mdp_remove(struct platform_device *pdev)
 	int i;
 
 	pm_runtime_disable(&pdev->dev);
-	vb2_dma_contig_clear_max_seg_size(&pdev->dev);
+	vb2_dma_contig_cleanup_ctx(mdp->alloc_ctx);
 	mtk_mdp_unregister_m2m_device(mdp);
 	v4l2_device_unregister(&mdp->v4l2_dev);
 

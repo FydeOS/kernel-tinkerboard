@@ -315,6 +315,13 @@ static int mtk_vcodec_probe(struct platform_device *pdev)
 	dev->vfd_dec = vfd_dec;
 	platform_set_drvdata(pdev, dev);
 
+	dev->alloc_ctx = vb2_dma_contig_init_ctx(&pdev->dev);
+	if (IS_ERR((__force void *)dev->alloc_ctx)) {
+		mtk_v4l2_err("Failed to alloc vb2 dma context 0");
+		ret = PTR_ERR((__force void *)dev->alloc_ctx);
+		goto err_vb2_ctx_init;
+	}
+
 	dev->m2m_dev_dec = v4l2_m2m_init(&mtk_vdec_m2m_ops);
 	if (IS_ERR((__force void *)dev->m2m_dev_dec)) {
 		mtk_v4l2_err("Failed to init mem2mem dec device");
@@ -347,6 +354,8 @@ err_dec_reg:
 err_event_workq:
 	v4l2_m2m_release(dev->m2m_dev_dec);
 err_dec_mem_init:
+	vb2_dma_contig_cleanup_ctx(dev->alloc_ctx);
+err_vb2_ctx_init:
 	video_unregister_device(vfd_dec);
 err_dec_alloc:
 	v4l2_device_unregister(&dev->v4l2_dev);
@@ -370,6 +379,8 @@ static int mtk_vcodec_dec_remove(struct platform_device *pdev)
 	destroy_workqueue(dev->decode_workqueue);
 	if (dev->m2m_dev_dec)
 		v4l2_m2m_release(dev->m2m_dev_dec);
+	if (dev->alloc_ctx)
+		vb2_dma_contig_cleanup_ctx(dev->alloc_ctx);
 
 	if (dev->vfd_dec)
 		video_unregister_device(dev->vfd_dec);

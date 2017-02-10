@@ -1000,8 +1000,7 @@ static int vidioc_vdec_g_fmt(struct file *file, void *priv,
 static int vb2ops_vdec_queue_setup(struct vb2_queue *vq,
 				unsigned int *nbuffers,
 				unsigned int *nplanes,
-				unsigned int sizes[],
-				struct device *alloc_devs[])
+				unsigned int sizes[], void* alloc_ctxs[])
 {
 	struct mtk_vcodec_ctx *ctx = vb2_get_drv_priv(vq);
 	struct mtk_q_data *q_data;
@@ -1018,6 +1017,7 @@ static int vb2ops_vdec_queue_setup(struct vb2_queue *vq,
 		for (i = 0; i < *nplanes; i++) {
 			if (sizes[i] < q_data->sizeimage[i])
 				return -EINVAL;
+			alloc_ctxs[i] = ctx->dev->alloc_ctx;
 		}
 	} else {
 		if (vq->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE)
@@ -1025,8 +1025,10 @@ static int vb2ops_vdec_queue_setup(struct vb2_queue *vq,
 		else
 			*nplanes = 1;
 
-		for (i = 0; i < *nplanes; i++)
+		for (i = 0; i < *nplanes; i++) {
 			sizes[i] = q_data->sizeimage[i];
+			alloc_ctxs[i] = ctx->dev->alloc_ctx;
+		}
 	}
 
 	mtk_v4l2_debug(1,
@@ -1424,7 +1426,6 @@ int mtk_vcodec_dec_queue_init(void *priv, struct vb2_queue *src_vq,
 	src_vq->mem_ops		= &vb2_dma_contig_memops;
 	src_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	src_vq->lock		= &ctx->dev->dev_mutex;
-	src_vq->dev             = &ctx->dev->plat_dev->dev;
 
 	ret = vb2_queue_init(src_vq);
 	if (ret) {
@@ -1439,7 +1440,6 @@ int mtk_vcodec_dec_queue_init(void *priv, struct vb2_queue *src_vq,
 	dst_vq->mem_ops		= &vb2_dma_contig_memops;
 	dst_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	dst_vq->lock		= &ctx->dev->dev_mutex;
-	dst_vq->dev             = &ctx->dev->plat_dev->dev;
 
 	ret = vb2_queue_init(dst_vq);
 	if (ret) {

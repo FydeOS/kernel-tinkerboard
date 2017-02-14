@@ -273,8 +273,7 @@ static int mtk_mfg_bind_device_resource(struct mtk_mfg *mfg)
 
 	mfg->tz = thermal_zone_get_zone_by_name("cpu_thermal");
 	if (IS_ERR(mfg->tz)) {
-		dev_err(dev, "Failed to get cpu_thermal zone\n");
-		return PTR_ERR(mfg->tz);
+		dev_warn(dev, "Failed to get cpu_thermal zone\n");
 	}
 
 	mfg->vgpu = devm_regulator_get(dev, "mfgsys-power");

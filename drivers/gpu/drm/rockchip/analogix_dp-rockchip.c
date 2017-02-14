@@ -399,6 +399,8 @@ static void rockchip_dp_unbind(struct device *dev, struct device *master,
 	rockchip_drm_psr_unregister(&dp->encoder);
 
 	analogix_dp_unbind(dp->adp);
+
+	dp->adp = ERR_PTR(-ENODEV);
 }
 
 static const struct component_ops rockchip_dp_component_ops = {
@@ -440,7 +442,7 @@ static int rockchip_dp_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	dp->dev = dev;
-
+	dp->adp = ERR_PTR(-ENODEV);
 	dp->plat_data.panel = panel;
 
 	platform_set_drvdata(pdev, dp);
@@ -460,12 +462,18 @@ static int rockchip_dp_suspend(struct device *dev)
 {
 	struct rockchip_dp_device *dp = dev_get_drvdata(dev);
 
+	if (IS_ERR(dp->adp))
+		return 0;
+
 	return analogix_dp_suspend(dp->adp);
 }
 
 static int rockchip_dp_resume(struct device *dev)
 {
 	struct rockchip_dp_device *dp = dev_get_drvdata(dev);
+
+	if (IS_ERR(dp->adp))
+		return 0;
 
 	return analogix_dp_resume(dp->adp);
 }

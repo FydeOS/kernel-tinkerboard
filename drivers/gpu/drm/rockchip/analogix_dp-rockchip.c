@@ -460,11 +460,6 @@ static int rockchip_dp_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static void rockchip_dp_shutdown(struct platform_device *pdev)
-{
-	analogix_dp_shutdown(&pdev->dev);
-}
-
 #ifdef CONFIG_PM_SLEEP
 static int rockchip_dp_suspend(struct device *dev)
 {
@@ -505,7 +500,6 @@ MODULE_DEVICE_TABLE(of, rockchip_dp_dt_ids);
 static struct platform_driver rockchip_dp_driver = {
 	.probe = rockchip_dp_probe,
 	.remove = rockchip_dp_remove,
-	.shutdown = rockchip_dp_shutdown,
 	.driver = {
 		   .name = "rockchip-dp",
 		   .owner = THIS_MODULE,

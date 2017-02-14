@@ -731,14 +731,15 @@ static void mtk_dsi_destroy_conn_enc(struct mtk_dsi *dsi)
 		drm_connector_cleanup(&dsi->conn);
 }
 
-static void mtk_dsi_ddp_start(struct mtk_ddp_comp *comp)
+static void mtk_dsi_ddp_start(struct mtk_ddp_comp *comp,
+			      struct cmdq_rec *handle)
 {
 	struct mtk_dsi *dsi = container_of(comp, struct mtk_dsi, ddp_comp);
 
 	mtk_dsi_poweron(dsi);
 }
 
-static void mtk_dsi_ddp_stop(struct mtk_ddp_comp *comp)
+static void mtk_dsi_ddp_stop(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
 {
 	struct mtk_dsi *dsi = container_of(comp, struct mtk_dsi, ddp_comp);
 

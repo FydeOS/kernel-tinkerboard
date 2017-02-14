@@ -10,6 +10,7 @@ config DRM_MEDIATEK
 	select DRM_MIPI_DSI
 	select DRM_PANEL
 	select MEMORY
+	select MTK_CMDQ
 	select MTK_SMI
 	help
 	  Choose this option if you have a Mediatek SoCs.

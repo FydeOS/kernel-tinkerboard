@@ -577,14 +577,14 @@ static const struct drm_encoder_helper_funcs mtk_dpi_encoder_helper_funcs = {
 	.atomic_check = mtk_dpi_atomic_check,
 };
 
-static void mtk_dpi_start(struct mtk_ddp_comp *comp)
+static void mtk_dpi_start(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
 {
 	struct mtk_dpi *dpi = container_of(comp, struct mtk_dpi, ddp_comp);
 
 	mtk_dpi_power_on(dpi, DPI_POWER_START);
 }
 
-static void mtk_dpi_stop(struct mtk_ddp_comp *comp)
+static void mtk_dpi_stop(struct mtk_ddp_comp *comp, struct cmdq_rec *handle)
 {
 	struct mtk_dpi *dpi = container_of(comp, struct mtk_dpi, ddp_comp);
 

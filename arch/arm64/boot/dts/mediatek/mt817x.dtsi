@@ -742,6 +742,8 @@
 			assigned-clocks = <&topckgen CLK_TOP_MM_SEL>;
 			assigned-clock-rates = <400000000>;
 			#clock-cells = <1>;
+
+			mediatek,gce = <&gce>;
 		};
 
 		mdp {

@@ -79,8 +79,6 @@ static void mtk_atomic_complete(struct mtk_drm_private *private,
 	drm_atomic_helper_commit_modeset_enables(drm, state);
 	drm_atomic_helper_commit_planes(drm, state, true);
 
-	drm_atomic_helper_wait_for_vblanks(drm, state);
-
 	drm_atomic_helper_cleanup_planes(drm, state);
 	drm_atomic_state_free(state);
 }
@@ -388,6 +386,19 @@ static int mtk_drm_probe(struct platform_device *pdev)
 		dev_err(dev, "Failed to ioremap mmsys-config resource: %d\n",
 			ret);
 		return ret;
+	}
+
+	node = of_parse_phandle(dev->of_node, "mediatek,gce", 0);
+	if (!node) {
+		dev_err(dev, "Failed to get gce node\n");
+		return -EINVAL;
+	}
+
+	private->gce_pdev = of_find_device_by_node(node);
+	of_node_put(node);
+	if (!private->gce_pdev) {
+		dev_err(dev, "Failed to find gce platform device\n");
+		return -EINVAL;
 	}
 
 	/* Iterate over sibling DISP function blocks */

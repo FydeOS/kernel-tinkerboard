@@ -1,6 +1,16 @@
 #
 # MediaTek SoC drivers
 #
+config MTK_CMDQ
+	bool "MediaTek CMDQ Support"
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	select MTK_INFRACFG
+	help
+	  Say yes here to add support for the MediaTek Command Queue (CMDQ)
+	  driver. The CMDQ is used to help read/write registers with critical
+	  time limitation, such as updating display configuration during the
+	  vblank.
+
 config MTK_INFRACFG
 	bool "MediaTek INFRACFG Support"
 	depends on ARCH_MEDIATEK || COMPILE_TEST

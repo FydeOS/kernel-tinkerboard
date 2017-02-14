@@ -65,6 +65,7 @@ struct rockchip_dp_device {
 
 	const struct rockchip_dp_chip_data *data;
 
+	struct analogix_dp_device *adp;
 	struct analogix_dp_plat_data plat_data;
 };
 
@@ -90,7 +91,7 @@ static int analogix_dp_psr_set(struct drm_encoder *encoder, bool enabled)
 			return -ETIMEDOUT;
 		}
 
-		ret = analogix_dp_enable_psr(dp->dev);
+		ret = analogix_dp_enable_psr(dp->adp);
 		if (ret) {
 			dev_err(dp->dev, "failed to enable psr %d\n", ret);
 			return ret;
@@ -98,7 +99,7 @@ static int analogix_dp_psr_set(struct drm_encoder *encoder, bool enabled)
 		rockchip_drm_set_win_enabled(crtc, false);
 	} else {
 		rockchip_drm_set_win_enabled(crtc, true);
-		ret = analogix_dp_disable_psr(dp->dev);
+		ret = analogix_dp_disable_psr(dp->adp);
 		if (ret) {
 			dev_err(dp->dev, "failed to disable psr %d\n", ret);
 			return ret;
@@ -355,13 +356,6 @@ static int rockchip_dp_bind(struct device *dev, struct device *master,
 	struct drm_device *drm_dev = data;
 	int ret;
 
-	/*
-	 * Just like the probe function said, we don't need the
-	 * device drvrate anymore, we should leave the charge to
-	 * analogix dp driver, set the device drvdata to NULL.
-	 */
-	dev_set_drvdata(dev, NULL);
-
 	dp_data = of_device_get_match_data(dev);
 	if (!dp_data)
 		return -ENODEV;
@@ -388,9 +382,13 @@ static int rockchip_dp_bind(struct device *dev, struct device *master,
 	dp->plat_data.power_off = rockchip_dp_powerdown;
 	dp->plat_data.get_modes = rockchip_dp_get_modes;
 
+	dp->adp = analogix_dp_bind(dev, dp->drm_dev, &dp->plat_data);
+	if (IS_ERR(dp->adp))
+		return PTR_ERR(dp->adp);
+
 	rockchip_drm_psr_register(&dp->encoder, analogix_dp_psr_set);
 
-	return analogix_dp_bind(dev, dp->drm_dev, &dp->plat_data);
+	return 0;
 }
 
 static void rockchip_dp_unbind(struct device *dev, struct device *master,
@@ -400,7 +398,7 @@ static void rockchip_dp_unbind(struct device *dev, struct device *master,
 
 	rockchip_drm_psr_unregister(&dp->encoder);
 
-	return analogix_dp_unbind(dev, master, data);
+	analogix_dp_unbind(dp->adp);
 }
 
 static const struct component_ops rockchip_dp_component_ops = {
@@ -445,11 +443,6 @@ static int rockchip_dp_probe(struct platform_device *pdev)
 
 	dp->plat_data.panel = panel;
 
-	/*
-	 * We just use the drvdata until driver run into component
-	 * add function, and then we would set drvdata to null, so
-	 * that analogix dp driver could take charge of the drvdata.
-	 */
 	platform_set_drvdata(pdev, dp);
 
 	return component_add(dev, &rockchip_dp_component_ops);
@@ -465,12 +458,16 @@ static int rockchip_dp_remove(struct platform_device *pdev)
 #ifdef CONFIG_PM_SLEEP
 static int rockchip_dp_suspend(struct device *dev)
 {
-	return analogix_dp_suspend(dev);
+	struct rockchip_dp_device *dp = dev_get_drvdata(dev);
+
+	return analogix_dp_suspend(dp->adp);
 }
 
 static int rockchip_dp_resume(struct device *dev)
 {
-	return analogix_dp_resume(dev);
+	struct rockchip_dp_device *dp = dev_get_drvdata(dev);
+
+	return analogix_dp_resume(dp->adp);
 }
 #endif
 

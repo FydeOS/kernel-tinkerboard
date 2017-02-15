@@ -127,7 +127,7 @@
 	sound: sound {
 		compatible = "mediatek,mt8173-rt5650";
 		mediatek,mclk = <1>;
-		mediatek,audio-codec = <&rt5650>;
+		mediatek,audio-codec = <&rt5650 &hdmi0>;
 		mediatek,platform = <&afe>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&aud_i2s2>;
@@ -145,6 +145,10 @@
 	sustainable-power = <5000>; /* milliwatts */
 };
 
+&dpi0 {
+	status = "okay";
+};
+
 &gpu {
 	mfgsys-power-supply = <&da9211_vgpu_reg>;
 	operating-points = <
@@ -156,6 +160,25 @@
 		598000 1130000
 	>;
 	status = "okay";
+};
+
+&hdmi0 {
+	status = "okay";
+
+	ports {
+		port@1 {
+			reg = <1>;
+
+			hdmi0_out: endpoint {
+				remote-endpoint = <&anx7688_in>;
+			};
+		};
+	};
+};
+
+&hdmi_phy {
+	status = "okay";
+	mediatek,ibias = <0xc>;
 };
 
 &i2c0 {
@@ -869,6 +892,19 @@
 			google,remote-bus = <1>;
 			#address-cells = <1>;
 			#size-cells = <0>;
+
+			anx7688: anx7688@2c {
+				compatible = "analogix,anx7688";
+				status = "okay";
+				reg = <0x2c>;
+				ddc-i2c-bus = <&hdmiddc0>;
+
+				port {
+					anx7688_in: endpoint {
+						remote-endpoint = <&hdmi0_out>;
+					};
+				};
+			};
 		};
 	};
 };

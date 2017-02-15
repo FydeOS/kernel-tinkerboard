@@ -140,6 +140,17 @@ ap_i2c_cam: &i2c2 {
 	phys = <&tcphy0_dp>;
 };
 
+&mipi_dsi {
+	status = "okay";
+	panel {
+		compatible = "innolux,p079zca";
+		reg = <0>;
+		backlight = <&backlight>;
+		power-supply = <&pp3300_disp>;
+		status = "okay";
+	};
+};
+
 &spi0 {
 	status = "okay";
 

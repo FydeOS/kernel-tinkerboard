@@ -62,4 +62,11 @@ config DRM_PANEL_SHARP_LQ101R1SX01
 	  To compile this driver as a module, choose M here: the module
 	  will be called panel-sharp-lq101r1sx01.
 
+config DRM_PANEL_BOE_TV097QXM_NU0
+	tristate "support for boe tv097qxm nu0"
+	depends on OF
+	depends on DRM_MIPI_DSI
+	help
+	  DRM panel driver for boe tv097qxm nu0
+
 endmenu

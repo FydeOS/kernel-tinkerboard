@@ -83,5 +83,10 @@
 			cooling-device = <&cpu2 0 0>;
 			contribution = <1024>;
 		};
+		map@2 {
+			trip = <&target>;
+			cooling-device = <&gpu 0 0>;
+			contribution = <2048>;
+		};
 	};
 };

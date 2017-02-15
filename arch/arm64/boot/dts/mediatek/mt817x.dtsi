@@ -724,6 +724,9 @@
 			interrupts = <0 217 IRQ_TYPE_LEVEL_LOW>;
 			interrupt-names = "RGX";
 			status = "disabled";
+			#cooling-cells = <2>;
+			#cooling-min-level = <0>;
+			#cooling-max-level = <3>;
 		};
 
 		mfgsys: mfgsys@13fff000 {

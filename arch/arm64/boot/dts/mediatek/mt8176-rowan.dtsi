@@ -172,6 +172,27 @@
 	sustainable-power = <5000>; /* milliwatts */
 };
 
+&dsi0 {
+	status = "okay";
+	reg = <0 0x1401b000 0 0x1000>, <0 0x1401c000 0 0x1000>;
+	clocks = <&mmsys CLK_MM_DSI0_ENGINE>, <&mmsys CLK_MM_DSI1_ENGINE>,
+		 <&mmsys CLK_MM_DSI0_DIGITAL>, <&mmsys CLK_MM_DSI1_DIGITAL>,
+		 <&mipi_tx0>;
+	clock-names = "engine", "engine1", "digital", "digital1", "hs";
+	mediatek,syscon-dsi = <&mmsys 0x144>;
+	mediatek,dual-dsi-mode;
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	ports {
+		port{
+			dsi_out: endpoint {
+			};
+		};
+	};
+};
+
 &dpi0 {
 	status = "okay";
 };
@@ -280,6 +301,12 @@
 		interrupt-parent = <&pio>;
 		interrupts = <88 IRQ_TYPE_LEVEL_LOW>;
 	};
+};
+
+&mipi_tx0 {
+	reg = <0 0x10215000 0 0x1000>, <0 0x10216000 0 0x1000>;
+	status = "okay";
+	mediatek,dual-dsi-mode;
 };
 
 &mmc0 {

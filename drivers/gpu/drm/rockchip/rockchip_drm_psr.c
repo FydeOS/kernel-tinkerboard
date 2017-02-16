@@ -13,6 +13,7 @@
  */
 
 #include <linux/input.h>
+#include <linux/reboot.h>
 
 #include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
@@ -33,6 +34,7 @@ struct psr_drv {
 	struct delayed_work	flush_work;
 	struct work_struct	disable_work;
 
+	struct notifier_block	reboot_nb;
 	struct input_handler    input_handler;
 
 	int (*set)(struct drm_encoder *encoder, bool enable);
@@ -274,6 +276,24 @@ static const struct input_device_id psr_ids[] = {
 	{ },
 };
 
+static int rockchip_drm_psr_reboot_notifier(struct notifier_block *nb,
+					    unsigned long action, void *data)
+{
+	struct psr_drv *psr = container_of(nb, struct psr_drv, reboot_nb);
+
+	/*
+	 * It looks like the driver subsystem detaches devices from power
+	 * domains at shutdown without consent of the drivers. This means
+	 * that we might have our power domain turned off behind our back
+	 * and the only way to avoid problems is to stop doing any hardware
+	 * programming after this point, which is achieved by the unbalanced
+	 * call below.
+	 */
+	rockchip_drm_psr_inhibit_get(psr->encoder);
+
+	return 0;
+}
+
 /**
  * rockchip_drm_psr_register - register encoder to psr driver
  * @encoder: encoder that obtain the PSR function
@@ -326,6 +346,9 @@ int rockchip_drm_psr_register(struct drm_encoder *encoder,
 	if (error)
 		goto err1;
 
+	psr->reboot_nb.notifier_call = rockchip_drm_psr_reboot_notifier;
+	register_reboot_notifier(&psr->reboot_nb);
+
 	mutex_lock(&drm_drv->psr_list_lock);
 	list_add_tail(&psr->list, &drm_drv->psr_list);
 	mutex_unlock(&drm_drv->psr_list_lock);
@@ -368,6 +391,7 @@ void rockchip_drm_psr_unregister(struct drm_encoder *encoder)
 			WARN_ON(psr->inhibit_count != 1);
 
 			list_del(&psr->list);
+			unregister_reboot_notifier(&psr->reboot_nb);
 			input_unregister_handler(&psr->input_handler);
 			kfree(psr->input_handler.name);
 			kfree(psr);

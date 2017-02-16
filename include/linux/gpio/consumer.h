@@ -46,13 +46,6 @@ enum gpiod_flags {
 /* Return the number of GPIOs associated with a device / function */
 int gpiod_count(struct device *dev, const char *con_id);
 
-/* Look up GPIOs */
-struct gpio_desc *__must_check gpiod_lookup(struct device *dev,
-					    const char *con_id);
-struct gpio_desc *__must_check gpiod_lookup_index(struct device *dev,
-						  const char *con_id,
-						  unsigned int idx);
-
 /* Acquire and dispose GPIOs */
 struct gpio_desc *__must_check gpiod_get(struct device *dev,
 					 const char *con_id,
@@ -151,20 +144,6 @@ struct gpio_desc *devm_get_gpiod_from_child(struct device *dev,
 static inline int gpiod_count(struct device *dev, const char *con_id)
 {
 	return 0;
-}
-
-static inline struct gpio_desc *__must_check gpiod_lookup(struct device *dev,
-							  const char *con_id)
-{
-	return ERR_PTR(-ENOSYS);
-}
-
-static inline struct gpio_desc *__must_check
-gpiod_lookup_index(struct device *dev,
-		   const char *con_id,
-		   unsigned int idx)
-{
-	return ERR_PTR(-ENOSYS);
 }
 
 static inline struct gpio_desc *__must_check gpiod_get(struct device *dev,

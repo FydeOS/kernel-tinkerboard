@@ -216,7 +216,7 @@ static int cros_ec_sleep_event(struct cros_ec_device *ec_dev, u8 sleep_event)
 	req->sleep_event = sleep_event;
 	msg->command = EC_CMD_HOST_SLEEP_EVENT;
 	msg->version = 0;
-	msg->outsize = sizeof(req);
+	msg->outsize = sizeof(*req);
 
 	return cros_ec_cmd_xfer(ec_dev, msg);
 }

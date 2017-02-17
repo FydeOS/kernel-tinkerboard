@@ -864,8 +864,8 @@
 			mt6397_vgp3_reg: ldo_vgp3 {
 				regulator-compatible = "ldo_vgp3";
 				regulator-name = "vcamaf";
-				regulator-min-microvolt = <1620000>;
-				regulator-max-microvolt = <1980000>;
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
 				regulator-enable-ramp-delay = <218>;
 			};
 

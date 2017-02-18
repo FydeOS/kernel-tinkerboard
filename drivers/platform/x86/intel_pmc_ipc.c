@@ -34,6 +34,7 @@
 #include <linux/acpi.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
 
+#include <asm/processor.h>
 #include <asm/intel_pmc_ipc.h>
 #include <linux/platform_data/itco_wdt.h>
 
@@ -60,11 +61,13 @@
 #define GCR_TELEM_DEEP_S0IX_OFFSET	0x1078
 #define GCR_TELEM_SHLW_S0IX_OFFSET	0x1080
 
-/* Residency with clock rate at 19.2MHz to usecs */
-#define S0IX_RESIDENCY_IN_USECS(d, s)		\
+#define INTEL_FAM6_ATOM_GOLDMONT 0x5C
+
+/* Convert S0ix residency to usecs based on XTAL frequency */
+#define S0IX_RESIDENCY_IN_USECS(d, s, x)	\
 ({						\
-	u64 result = 10ull * ((d) + (s));	\
-	do_div(result, 192);			\
+	u64 result = 1000ull * ((d) + (s));	\
+	do_div(result, (x));			\
 	result;					\
 })
 
@@ -127,6 +130,7 @@ static struct intel_pmc_ipc_dev {
 	resource_size_t gcr_base;
 	int gcr_size;
 	bool has_gcr_regs;
+	u32 xtal_khz;
 
 	/* punit */
 	struct platform_device *punit_dev;
@@ -195,6 +199,18 @@ static inline u32 ipc_data_readl(u32 offset)
 static inline u64 gcr_data_readq(u32 offset)
 {
 	return readq(ipcdev.ipc_base + offset);
+}
+
+static int get_xtal_clock_freq(void)
+{
+	switch (boot_cpu_data.x86_model) {
+	case INTEL_FAM6_ATOM_GOLDMONT:
+		ipcdev.xtal_khz = 19200;
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
 }
 
 static int intel_pmc_ipc_check_status(void)
@@ -825,7 +841,7 @@ int intel_pmc_s0ix_counter_read(u64 *data)
 	deep = gcr_data_readq(GCR_TELEM_DEEP_S0IX_OFFSET);
 	shlw = gcr_data_readq(GCR_TELEM_SHLW_S0IX_OFFSET);
 
-	*data = S0IX_RESIDENCY_IN_USECS(deep, shlw);
+	*data = S0IX_RESIDENCY_IN_USECS(deep, shlw, ipcdev.xtal_khz);
 
 	return 0;
 }
@@ -870,6 +886,12 @@ static int ipc_plat_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Failed to request irq\n");
 		ret = -EBUSY;
 		goto err_irq;
+	}
+
+	ret = get_xtal_clock_freq();
+	if (ret) {
+		dev_err(&pdev->dev, "Failed to get XTAL freq\n");
+		goto err_sys;
 	}
 
 	ret = sysfs_create_group(&pdev->dev.kobj, &intel_ipc_group);

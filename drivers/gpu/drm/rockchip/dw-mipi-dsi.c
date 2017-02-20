@@ -12,6 +12,7 @@
 #include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/of_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/regmap.h>
 #include <linux/reset.h>
 #include <linux/mfd/syscon.h>
@@ -294,6 +295,7 @@ struct dw_mipi_dsi {
 	struct clk *pclk;
 	struct clk *phy_cfg_clk;
 
+	int dpms_mode;
 	unsigned int lane_mbps; /* per lane */
 	u32 channel;
 	u32 lanes;
@@ -924,6 +926,9 @@ static void dw_mipi_dsi_encoder_disable(struct drm_encoder *encoder)
 {
 	struct dw_mipi_dsi *dsi = encoder_to_dsi(encoder);
 
+	if (dsi->dpms_mode != DRM_MODE_DPMS_ON)
+		return;
+
 	if (clk_prepare_enable(dsi->pclk)) {
 		dev_err(dsi->dev, "%s: Failed to enable pclk\n", __func__);
 		return;
@@ -935,7 +940,9 @@ static void dw_mipi_dsi_encoder_disable(struct drm_encoder *encoder)
 	drm_panel_unprepare(dsi->panel);
 
 	dw_mipi_dsi_disable(dsi);
+	pm_runtime_put(dsi->dev);
 	clk_disable_unprepare(dsi->pclk);
+	dsi->dpms_mode = DRM_MODE_DPMS_OFF;
 }
 
 static void dw_mipi_dsi_encoder_enable(struct drm_encoder *encoder)
@@ -950,11 +957,15 @@ static void dw_mipi_dsi_encoder_enable(struct drm_encoder *encoder)
 	if (ret < 0)
 		return;
 
+	if (dsi->dpms_mode == DRM_MODE_DPMS_ON)
+		return;
+
 	if (clk_prepare_enable(dsi->pclk)) {
 		dev_err(dsi->dev, "%s: Failed to enable pclk\n", __func__);
 		return;
 	}
 
+	pm_runtime_get_sync(dsi->dev);
 	dw_mipi_dsi_init(dsi);
 	dw_mipi_dsi_dpi_config(dsi, mode);
 	dw_mipi_dsi_packet_handler_config(dsi);
@@ -995,6 +1006,7 @@ static void dw_mipi_dsi_encoder_enable(struct drm_encoder *encoder)
 	}
 
 	regmap_write(dsi->grf_regmap, pdata->grf_switch_reg, val);
+	dsi->dpms_mode = DRM_MODE_DPMS_ON;
 }
 
 static int
@@ -1178,6 +1190,7 @@ static int dw_mipi_dsi_bind(struct device *dev, struct device *master,
 
 	dsi->dev = dev;
 	dsi->pdata = pdata;
+	dsi->dpms_mode = DRM_MODE_DPMS_OFF;
 
 	ret = rockchip_mipi_parse_dt(dsi);
 	if (ret)
@@ -1257,6 +1270,8 @@ static int dw_mipi_dsi_bind(struct device *dev, struct device *master,
 		goto err_pllref;
 	}
 
+	pm_runtime_enable(dev);
+
 	dsi->dsi_host.ops = &dw_mipi_dsi_host_ops;
 	dsi->dsi_host.dev = dev;
 	ret = mipi_dsi_host_register(&dsi->dsi_host);
@@ -1289,6 +1304,7 @@ static void dw_mipi_dsi_unbind(struct device *dev, struct device *master,
 	struct dw_mipi_dsi *dsi = dev_get_drvdata(dev);
 
 	mipi_dsi_host_unregister(&dsi->dsi_host);
+	pm_runtime_disable(dev);
 	clk_disable_unprepare(dsi->pllref_clk);
 }
 

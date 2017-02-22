@@ -35,6 +35,7 @@
 #include <uapi/drm/drm_mode.h>
 #include <uapi/drm/drm_fourcc.h>
 #include <drm/drm_modeset_lock.h>
+#include <drm/drm_rect.h>
 
 struct drm_device;
 struct drm_mode_set;
@@ -44,6 +45,7 @@ struct drm_file;
 struct drm_clip_rect;
 struct device_node;
 struct fence;
+struct reservation_object;
 
 #define DRM_MODE_OBJECT_CRTC 0xcccccccc
 #define DRM_MODE_OBJECT_CONNECTOR 0xc0c0c0c0
@@ -180,6 +182,14 @@ struct drm_framebuffer_funcs {
 		     struct drm_file *file_priv, unsigned flags,
 		     unsigned color, struct drm_clip_rect *clips,
 		     unsigned num_clips);
+	/*
+	 * This callback appends up to 4 reservation objects
+	 * associated with given fb to resvs array. It should check
+	 * if the reservation is already in the array before adding it.
+	 */
+	int (*get_reservations)(struct drm_framebuffer *fb,
+				struct reservation_object **resvs,
+				unsigned int *num_resvs);
 };
 
 struct drm_framebuffer {
@@ -259,11 +269,20 @@ struct drm_atomic_state;
  * @mode_changed: crtc_state->mode or crtc_state->enable has been changed
  * @active_changed: crtc_state->active has been toggled.
  * @connectors_changed: connectors to this crtc have been updated
+ * @color_mgmt_changed: color management properties have changed (degamma or
+ *	gamma LUT or CSC matrix)
  * @plane_mask: bitmask of (1 << drm_plane_index(plane)) of attached planes
+ * @connector_mask: bitmask of (1 << drm_connector_index(connector)) of attached connectors
+ * @encoder_mask: bitmask of (1 << drm_encoder_index(encoder)) of attached encoders
  * @last_vblank_count: for helpers and drivers to capture the vblank of the
  * 	update to ensure framebuffer cleanup isn't done too early
  * @adjusted_mode: for use by helpers and drivers to compute adjusted mode timings
  * @mode: current mode timings
+ * @degamma_lut: Lookup table for converting framebuffer pixel data
+ *	before apply the conversion matrix
+ * @ctm: Transformation matrix
+ * @gamma_lut: Lookup table for converting pixel data after the
+ *	conversion matrix
  * @event: optional pointer to a DRM event to signal upon completion of the
  * 	state update
  * @state: backpointer to global drm_atomic_state
@@ -285,6 +304,7 @@ struct drm_crtc_state {
 	bool mode_changed : 1;
 	bool active_changed : 1;
 	bool connectors_changed : 1;
+	bool color_mgmt_changed : 1;
 
 	/* attached planes bitmask:
 	 * WARNING: transitional helpers do not maintain plane_mask so
@@ -292,6 +312,9 @@ struct drm_crtc_state {
 	 * on plane_mask being accurate!
 	 */
 	u32 plane_mask;
+
+	u32 connector_mask;
+	u32 encoder_mask;
 
 	/* last_vblank_count: for vblank waits before cleanup */
 	u32 last_vblank_count;
@@ -303,6 +326,11 @@ struct drm_crtc_state {
 
 	/* blob property to expose current mode to atomic userspace */
 	struct drm_property_blob *mode_blob;
+
+	/* blob property to expose color management to userspace */
+	struct drm_property_blob *degamma_lut;
+	struct drm_property_blob *ctm;
+	struct drm_property_blob *gamma_lut;
 
 	struct drm_pending_vblank_event *event;
 
@@ -426,6 +454,8 @@ struct drm_crtc {
 	struct device_node *port;
 	struct list_head head;
 
+	char *name;
+
 	/*
 	 * crtc mutex
 	 *
@@ -458,7 +488,7 @@ struct drm_crtc {
 	int x, y;
 	const struct drm_crtc_funcs *funcs;
 
-	/* CRTC gamma size for reporting to userspace */
+	/* Legacy FB CRTC gamma size for reporting to userspace */
 	uint32_t gamma_size;
 	uint16_t *gamma_store;
 
@@ -752,6 +782,9 @@ struct drm_connector {
  *	plane (in 16.16)
  * @src_w: width of visible portion of plane (in 16.16)
  * @src_h: height of visible portion of plane (in 16.16)
+ * @src: clipped source coordinates of the plane (in 16.16)
+ * @dst: clipped destination coordinates of the plane
+ * @visible: visibility of the plane
  * @state: backpointer to global drm_atomic_state
  */
 struct drm_plane_state {
@@ -771,6 +804,15 @@ struct drm_plane_state {
 
 	/* Plane rotation */
 	unsigned int rotation;
+
+	/* Clipped coordinates */
+	struct drm_rect src, dst;
+
+	/*
+	 * Is the plane actually visible? Can be false even
+	 * if fb!=NULL and crtc!=NULL, due to clipping.
+	 */
+	bool visible;
 
 	struct drm_atomic_state *state;
 };
@@ -855,6 +897,9 @@ struct drm_plane {
 	unsigned int format_count;
 	bool format_default;
 
+	struct drm_format_modifier *format_modifiers;
+	unsigned int format_modifier_count;
+
 	struct drm_crtc *crtc;
 	struct drm_framebuffer *fb;
 
@@ -874,24 +919,122 @@ struct drm_plane {
 /**
  * struct drm_bridge_funcs - drm_bridge control functions
  * @attach: Called during drm_bridge_attach
- * @mode_fixup: Try to fixup (or reject entirely) proposed mode for this bridge
- * @disable: Called right before encoder prepare, disables the bridge
- * @post_disable: Called right after encoder prepare, for lockstepped disable
- * @mode_set: Set this mode to the bridge
- * @pre_enable: Called right before encoder commit, for lockstepped commit
- * @enable: Called right after encoder commit, enables the bridge
  */
 struct drm_bridge_funcs {
 	int (*attach)(struct drm_bridge *bridge);
+
+	/**
+	 * @mode_fixup:
+	 *
+	 * This callback is used to validate and adjust a mode. The paramater
+	 * mode is the display mode that should be fed to the next element in
+	 * the display chain, either the final &drm_connector or the next
+	 * &drm_bridge. The parameter adjusted_mode is the input mode the bridge
+	 * requires. It can be modified by this callback and does not need to
+	 * match mode.
+	 *
+	 * This is the only hook that allows a bridge to reject a modeset. If
+	 * this function passes all other callbacks must succeed for this
+	 * configuration.
+	 *
+	 * NOTE:
+	 *
+	 * This function is called in the check phase of atomic modesets, which
+	 * can be aborted for any reason (including on userspace's request to
+	 * just check whether a configuration would be possible). Drivers MUST
+	 * NOT touch any persistent state (hardware or software) or data
+	 * structures except the passed in adjusted_mode parameter.
+	 *
+	 * RETURNS:
+	 *
+	 * True if an acceptable configuration is possible, false if the modeset
+	 * operation should be rejected.
+	 */
 	bool (*mode_fixup)(struct drm_bridge *bridge,
 			   const struct drm_display_mode *mode,
 			   struct drm_display_mode *adjusted_mode);
+	/**
+	 * @disable:
+	 *
+	 * This callback should disable the bridge. It is called right before
+	 * the preceding element in the display pipe is disabled. If the
+	 * preceding element is a bridge this means it's called before that
+	 * bridge's ->disable() function. If the preceding element is a
+	 * &drm_encoder it's called right before the encoder's ->disable(),
+	 * ->prepare() or ->dpms() hook from struct &drm_encoder_helper_funcs.
+	 *
+	 * The bridge can assume that the display pipe (i.e. clocks and timing
+	 * signals) feeding it is still running when this callback is called.
+	 *
+	 * The disable callback is optional.
+	 */
 	void (*disable)(struct drm_bridge *bridge);
+
+	/**
+	 * @post_disable:
+	 *
+	 * This callback should disable the bridge. It is called right after
+	 * the preceding element in the display pipe is disabled. If the
+	 * preceding element is a bridge this means it's called after that
+	 * bridge's ->post_disable() function. If the preceding element is a
+	 * &drm_encoder it's called right after the encoder's ->disable(),
+	 * ->prepare() or ->dpms() hook from struct &drm_encoder_helper_funcs.
+	 *
+	 * The bridge must assume that the display pipe (i.e. clocks and timing
+	 * singals) feeding it is no longer running when this callback is
+	 * called.
+	 *
+	 * The post_disable callback is optional.
+	 */
 	void (*post_disable)(struct drm_bridge *bridge);
+
+	/**
+	 * @mode_set:
+	 *
+	 * This callback should set the given mode on the bridge. It is called
+	 * after the ->mode_set() callback for the preceding element in the
+	 * display pipeline has been called already. The display pipe (i.e.
+	 * clocks and timing signals) is off when this function is called.
+	 */
 	void (*mode_set)(struct drm_bridge *bridge,
 			 struct drm_display_mode *mode,
 			 struct drm_display_mode *adjusted_mode);
+	/**
+	 * @pre_enable:
+	 *
+	 * This callback should enable the bridge. It is called right before
+	 * the preceding element in the display pipe is enabled. If the
+	 * preceding element is a bridge this means it's called before that
+	 * bridge's ->pre_enable() function. If the preceding element is a
+	 * &drm_encoder it's called right before the encoder's ->enable(),
+	 * ->commit() or ->dpms() hook from struct &drm_encoder_helper_funcs.
+	 *
+	 * The display pipe (i.e. clocks and timing signals) feeding this bridge
+	 * will not yet be running when this callback is called. The bridge must
+	 * not enable the display link feeding the next bridge in the chain (if
+	 * there is one) when this callback is called.
+	 *
+	 * The pre_enable callback is optional.
+	 */
 	void (*pre_enable)(struct drm_bridge *bridge);
+
+	/**
+	 * @enable:
+	 *
+	 * This callback should enable the bridge. It is called right after
+	 * the preceding element in the display pipe is enabled. If the
+	 * preceding element is a bridge this means it's called after that
+	 * bridge's ->enable() function. If the preceding element is a
+	 * &drm_encoder it's called right after the encoder's ->enable(),
+	 * ->commit() or ->dpms() hook from struct &drm_encoder_helper_funcs.
+	 *
+	 * The bridge can assume that the display pipe (i.e. clocks and timing
+	 * signals) feeding it is running when this callback is called. This
+	 * callback must enable the display link feeding the next bridge in the
+	 * chain if there is one.
+	 *
+	 * The enable callback is optional.
+	 */
 	void (*enable)(struct drm_bridge *bridge);
 };
 
@@ -992,7 +1135,7 @@ struct drm_mode_set {
 struct drm_mode_config_funcs {
 	struct drm_framebuffer *(*fb_create)(struct drm_device *dev,
 					     struct drm_file *file_priv,
-					     struct drm_mode_fb_cmd2 *mode_cmd);
+					     const struct drm_mode_fb_cmd2 *mode_cmd);
 	void (*output_poll_changed)(struct drm_device *dev);
 
 	int (*atomic_check)(struct drm_device *dev,
@@ -1038,6 +1181,15 @@ struct drm_mode_config_funcs {
  * @property_blob_list: list of all the blob property objects
  * @blob_lock: mutex for blob property allocation and management
  * @*_property: core property tracking
+ * @degamma_lut_property: LUT used to convert the framebuffer's colors to linear
+ *	gamma
+ * @degamma_lut_size_property: size of the degamma LUT as supported by the
+ *	driver (read-only)
+ * @ctm_property: Matrix used to convert colors after the lookup in the
+ *	degamma LUT
+ * @gamma_lut_property: LUT used to convert the colors, after the CSC matrix, to
+ *	the gamma space of the connected screen (read-only)
+ * @gamma_lut_size_property: size of the gamma LUT as supported by the driver
  * @preferred_depth: preferred RBG pixel depth, used by fb helpers
  * @prefer_shadow: hint to userspace to prefer shadow-fb rendering
  * @async_page_flip: does this device support async flips on the primary plane?
@@ -1139,6 +1291,13 @@ struct drm_mode_config {
 	struct drm_property *aspect_ratio_property;
 	struct drm_property *dirty_info_property;
 
+	/* Optional color correction properties */
+	struct drm_property *degamma_lut_property;
+	struct drm_property *degamma_lut_size_property;
+	struct drm_property *ctm_property;
+	struct drm_property *gamma_lut_property;
+	struct drm_property *gamma_lut_size_property;
+
 	/* properties for virtual machine layout */
 	struct drm_property *suggested_x_property;
 	struct drm_property *suggested_y_property;
@@ -1166,8 +1325,19 @@ struct drm_mode_config {
  */
 #define drm_for_each_plane_mask(plane, dev, plane_mask) \
 	list_for_each_entry((plane), &(dev)->mode_config.plane_list, head) \
-		if ((plane_mask) & (1 << drm_plane_index(plane)))
+		for_each_if ((plane_mask) & (1 << drm_plane_index(plane)))
 
+/**
+ * drm_for_each_encoder_mask - iterate over encoders specified by bitmask
+ * @encoder: the loop cursor
+ * @dev: the DRM device
+ * @encoder_mask: bitmask of encoder indices
+ *
+ * Iterate over all encoders specified by bitmask.
+ */
+#define drm_for_each_encoder_mask(encoder, dev, encoder_mask) \
+	list_for_each_entry((encoder), &(dev)->mode_config.encoder_list, head) \
+		for_each_if ((encoder_mask) & (1 << drm_encoder_index(encoder)))
 
 #define obj_to_crtc(x) container_of(x, struct drm_crtc, base)
 #define obj_to_connector(x) container_of(x, struct drm_connector, base)
@@ -1183,11 +1353,13 @@ struct drm_prop_enum_list {
 	char *name;
 };
 
-extern int drm_crtc_init_with_planes(struct drm_device *dev,
-				     struct drm_crtc *crtc,
-				     struct drm_plane *primary,
-				     struct drm_plane *cursor,
-				     const struct drm_crtc_funcs *funcs);
+extern __printf(6, 7)
+int drm_crtc_init_with_planes(struct drm_device *dev,
+			      struct drm_crtc *crtc,
+			      struct drm_plane *primary,
+			      struct drm_plane *cursor,
+			      const struct drm_crtc_funcs *funcs,
+			      const char *name, ...);
 extern void drm_crtc_cleanup(struct drm_crtc *crtc);
 extern unsigned int drm_crtc_index(struct drm_crtc *crtc);
 
@@ -1214,8 +1386,9 @@ void drm_connector_unregister(struct drm_connector *connector);
 
 extern void drm_connector_cleanup(struct drm_connector *connector);
 extern unsigned int drm_connector_index(struct drm_connector *connector);
-/* helper to unplug all connectors from sysfs for device */
-extern void drm_connector_unplug_all(struct drm_device *dev);
+/* helpers to {un}register all connectors from sysfs for device */
+extern int drm_connector_register_all(struct drm_device *dev);
+extern void drm_connector_unregister_all(struct drm_device *dev);
 
 extern int drm_bridge_add(struct drm_bridge *bridge);
 extern void drm_bridge_remove(struct drm_bridge *bridge);
@@ -1233,10 +1406,12 @@ void drm_bridge_mode_set(struct drm_bridge *bridge,
 void drm_bridge_pre_enable(struct drm_bridge *bridge);
 void drm_bridge_enable(struct drm_bridge *bridge);
 
-extern int drm_encoder_init(struct drm_device *dev,
-			    struct drm_encoder *encoder,
-			    const struct drm_encoder_funcs *funcs,
-			    int encoder_type);
+extern __printf(5, 6)
+int drm_encoder_init(struct drm_device *dev,
+		     struct drm_encoder *encoder,
+		     const struct drm_encoder_funcs *funcs,
+		     int encoder_type, const char *name, ...);
+extern unsigned int drm_encoder_index(struct drm_encoder *encoder);
 
 /**
  * drm_encoder_crtc_ok - can a given crtc drive a given encoder?
@@ -1251,13 +1426,17 @@ static inline bool drm_encoder_crtc_ok(struct drm_encoder *encoder,
 	return !!(encoder->possible_crtcs & drm_crtc_mask(crtc));
 }
 
-extern int drm_universal_plane_init(struct drm_device *dev,
-				    struct drm_plane *plane,
-				    unsigned long possible_crtcs,
-				    const struct drm_plane_funcs *funcs,
-				    const uint32_t *formats,
-				    unsigned int format_count,
-				    enum drm_plane_type type);
+extern __printf(10, 11)
+int drm_universal_plane_init(struct drm_device *dev,
+			     struct drm_plane *plane,
+			     unsigned long possible_crtcs,
+			     const struct drm_plane_funcs *funcs,
+			     const uint32_t *formats,
+			     unsigned int format_count,
+			     const struct drm_format_modifier *format_modifiers,
+			     unsigned int format_modifier_count,
+			     enum drm_plane_type type,
+			     const char *name, ...);
 extern int drm_plane_init(struct drm_device *dev,
 			  struct drm_plane *plane,
 			  unsigned long possible_crtcs,
@@ -1497,7 +1676,10 @@ extern struct drm_property *drm_mode_create_rotation_property(struct drm_device 
 							      unsigned int supported_rotations);
 extern unsigned int drm_rotation_simplify(unsigned int rotation,
 					  unsigned int supported_rotations);
-
+extern void drm_crtc_enable_color_mgmt(struct drm_crtc *crtc,
+				       uint degamma_lut_size,
+				       bool has_ctm,
+				       uint gamma_lut_size);
 /* Helpers */
 
 static inline struct drm_plane *drm_plane_find(struct drm_device *dev,
@@ -1540,10 +1722,25 @@ static inline struct drm_property *drm_property_find(struct drm_device *dev,
 	return mo ? obj_to_property(mo) : NULL;
 }
 
+/*
+ * Extract a degamma/gamma LUT value provided by user and round it to the
+ * precision supported by the hardware.
+ */
+static inline uint32_t drm_color_lut_extract(uint32_t user_input,
+					     uint32_t bit_precision)
+{
+	uint32_t val = user_input + (1 << (16 - bit_precision - 1));
+	uint32_t max = 0xffff >> (16 - bit_precision);
+
+	val >>= 16 - bit_precision;
+
+	return clamp_val(val, 0, max);
+}
+
 /* Plane list iterator for legacy (overlay only) planes. */
 #define drm_for_each_legacy_plane(plane, dev) \
 	list_for_each_entry(plane, &(dev)->mode_config.plane_list, head) \
-		if (plane->type == DRM_PLANE_TYPE_OVERLAY)
+		for_each_if (plane->type == DRM_PLANE_TYPE_OVERLAY)
 
 #define drm_for_each_plane(plane, dev) \
 	list_for_each_entry(plane, &(dev)->mode_config.plane_list, head)

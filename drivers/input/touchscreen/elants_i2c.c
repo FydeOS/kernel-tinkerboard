@@ -151,6 +151,7 @@ struct elants_data {
 
 	bool wake_irq_enabled;
 	bool keep_power_in_suspend;
+	bool unbinding;
 };
 
 static int elants_i2c_send(struct i2c_client *client,
@@ -298,7 +299,7 @@ static u16 elants_i2c_parse_version(u8 *buf)
 	return get_unaligned_be32(buf) >> 4;
 }
 
-static int elants_i2c_query_fw_id(struct elants_data *ts)
+static int elants_i2c_query_hw_version(struct elants_data *ts)
 {
 	struct i2c_client *client = ts->client;
 	int error, retry_cnt;
@@ -318,8 +319,13 @@ static int elants_i2c_query_fw_id(struct elants_data *ts)
 			error, (int)sizeof(resp), resp);
 	}
 
-	dev_err(&client->dev,
-		"Failed to read fw id or fw id is invalid\n");
+	if (error) {
+		dev_err(&client->dev,
+			"Failed to read fw id: %d\n", error);
+		return error;
+	}
+
+	dev_err(&client->dev, "Invalid fw id: %#04x\n", ts->hw_version);
 
 	return -EINVAL;
 }
@@ -508,7 +514,7 @@ static int elants_i2c_fastboot(struct i2c_client *client)
 static int elants_i2c_initialize(struct elants_data *ts)
 {
 	struct i2c_client *client = ts->client;
-	int error, retry_cnt;
+	int error, error2, retry_cnt;
 	const u8 hello_packet[] = { 0x55, 0x55, 0x55, 0x55 };
 	const u8 recov_packet[] = { 0x55, 0x55, 0x80, 0x80 };
 	u8 buf[HEADER_SIZE];
@@ -553,18 +559,22 @@ static int elants_i2c_initialize(struct elants_data *ts)
 		}
 	}
 
+	/* hw version is available even if device in recovery state */
+	error2 = elants_i2c_query_hw_version(ts);
 	if (!error)
-		error = elants_i2c_query_fw_id(ts);
+		error = error2;
+
 	if (!error)
 		error = elants_i2c_query_fw_version(ts);
+	if (!error)
+		error = elants_i2c_query_test_version(ts);
+	if (!error)
+		error = elants_i2c_query_bc_version(ts);
+	if (!error)
+		error = elants_i2c_query_ts_info(ts);
 
-	if (error) {
+	if (error)
 		ts->iap_mode = ELAN_IAP_RECOVERY;
-	} else {
-		elants_i2c_query_test_version(ts);
-		elants_i2c_query_bc_version(ts);
-		elants_i2c_query_ts_info(ts);
-	}
 
 	return 0;
 }
@@ -723,9 +733,15 @@ static int elants_i2c_fw_update(struct elants_data *ts)
 	error = request_firmware(&fw, fw_name, &client->dev);
 	kfree(fw_name);
 	if (error) {
-		dev_err(&client->dev, "failed to request firmware: %d\n",
+		dev_info(&client->dev, "failed to request firmware: %d\n",
 			error);
-		return error;
+		dev_info(&client->dev, "Falling back to 'elants_i2c.bin' instead\n");
+		error = request_firmware(&fw, "elants_i2c.bin", &client->dev);
+		if (error) {
+			dev_info(&client->dev, "failed to request firmware: %d\n",
+				error);
+			return error;
+		}
 	}
 
 	if (fw->size % ELAN_FW_PAGESIZE) {
@@ -905,9 +921,9 @@ static irqreturn_t elants_i2c_irq(int irq, void *_dev)
 
 		case QUEUE_HEADER_NORMAL:
 			report_count = ts->buf[FW_HDR_COUNT];
-			if (report_count > 3) {
+			if (report_count == 0 || report_count > 3) {
 				dev_err(&client->dev,
-					"too large report count: %*ph\n",
+					"bad report count: %*ph\n",
 					HEADER_SIZE, ts->buf);
 				break;
 			}
@@ -1118,6 +1134,12 @@ static void elants_i2c_power_off(void *_data)
 {
 	struct elants_data *ts = _data;
 
+	if (ts->unbinding) {
+		dev_info(&ts->client->dev,
+			 "Not disabling regulators to continue allowing userspace i2c-dev access\n");
+		return;
+	}
+
 	if (!IS_ERR_OR_NULL(ts->reset_gpio)) {
 		/*
 		 * Activate reset gpio to prevent leakage through the
@@ -1302,6 +1324,19 @@ static int elants_i2c_probe(struct i2c_client *client,
 	return 0;
 }
 
+static int elants_i2c_remove(struct i2c_client *client)
+{
+	struct elants_data *ts = i2c_get_clientdata(client);
+
+	/*
+	 * Let elants_i2c_power_off know that it needs to keep
+	 * regulators on.
+	 */
+	ts->unbinding = true;
+
+	return 0;
+}
+
 static int __maybe_unused elants_i2c_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -1399,6 +1434,7 @@ MODULE_DEVICE_TABLE(of, elants_of_match);
 
 static struct i2c_driver elants_i2c_driver = {
 	.probe = elants_i2c_probe,
+	.remove = elants_i2c_remove,
 	.id_table = elants_i2c_id,
 	.driver = {
 		.name = DEVICE_NAME,

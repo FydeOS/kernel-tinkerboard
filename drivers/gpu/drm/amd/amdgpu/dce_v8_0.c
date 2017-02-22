@@ -392,15 +392,6 @@ static void dce_v8_0_hpd_init(struct amdgpu_device *adev)
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
 		struct amdgpu_connector *amdgpu_connector = to_amdgpu_connector(connector);
 
-		if (connector->connector_type == DRM_MODE_CONNECTOR_eDP ||
-		    connector->connector_type == DRM_MODE_CONNECTOR_LVDS) {
-			/* don't try to enable hpd on eDP or LVDS avoid breaking the
-			 * aux dp channel on imac and help (but not completely fix)
-			 * https://bugzilla.redhat.com/show_bug.cgi?id=726143
-			 * also avoid interrupt storms during dpms.
-			 */
-			continue;
-		}
 		switch (amdgpu_connector->hpd.hpd) {
 		case AMDGPU_HPD_1:
 			WREG32(mmDC_HPD1_CONTROL, tmp);
@@ -423,6 +414,45 @@ static void dce_v8_0_hpd_init(struct amdgpu_device *adev)
 		default:
 			break;
 		}
+
+		if (connector->connector_type == DRM_MODE_CONNECTOR_eDP ||
+		    connector->connector_type == DRM_MODE_CONNECTOR_LVDS) {
+			/* don't try to enable hpd on eDP or LVDS avoid breaking the
+			 * aux dp channel on imac and help (but not completely fix)
+			 * https://bugzilla.redhat.com/show_bug.cgi?id=726143
+			 * also avoid interrupt storms during dpms.
+			 */
+			u32 dc_hpd_int_cntl_reg, dc_hpd_int_cntl;
+
+			switch (amdgpu_connector->hpd.hpd) {
+			case AMDGPU_HPD_1:
+				dc_hpd_int_cntl_reg = mmDC_HPD1_INT_CONTROL;
+				break;
+			case AMDGPU_HPD_2:
+				dc_hpd_int_cntl_reg = mmDC_HPD2_INT_CONTROL;
+				break;
+			case AMDGPU_HPD_3:
+				dc_hpd_int_cntl_reg = mmDC_HPD3_INT_CONTROL;
+				break;
+			case AMDGPU_HPD_4:
+				dc_hpd_int_cntl_reg = mmDC_HPD4_INT_CONTROL;
+				break;
+			case AMDGPU_HPD_5:
+				dc_hpd_int_cntl_reg = mmDC_HPD5_INT_CONTROL;
+				break;
+			case AMDGPU_HPD_6:
+				dc_hpd_int_cntl_reg = mmDC_HPD6_INT_CONTROL;
+				break;
+			default:
+				continue;
+			}
+
+			dc_hpd_int_cntl = RREG32(dc_hpd_int_cntl_reg);
+			dc_hpd_int_cntl &= ~DC_HPD1_INT_CONTROL__DC_HPD1_INT_EN_MASK;
+			WREG32(dc_hpd_int_cntl_reg, dc_hpd_int_cntl);
+			continue;
+		}
+
 		dce_v8_0_hpd_set_polarity(adev, amdgpu_connector->hpd.hpd);
 		amdgpu_irq_get(adev, &adev->hpd_irq, amdgpu_connector->hpd.hpd);
 	}
@@ -3659,7 +3689,7 @@ static void dce_v8_0_encoder_add(struct amdgpu_device *adev,
 	case ENCODER_OBJECT_ID_INTERNAL_KLDSCP_DAC1:
 	case ENCODER_OBJECT_ID_INTERNAL_KLDSCP_DAC2:
 		drm_encoder_init(dev, encoder, &dce_v8_0_encoder_funcs,
-				 DRM_MODE_ENCODER_DAC);
+				 DRM_MODE_ENCODER_DAC, NULL);
 		drm_encoder_helper_add(encoder, &dce_v8_0_dac_helper_funcs);
 		break;
 	case ENCODER_OBJECT_ID_INTERNAL_KLDSCP_DVO1:
@@ -3670,15 +3700,15 @@ static void dce_v8_0_encoder_add(struct amdgpu_device *adev,
 		if (amdgpu_encoder->devices & (ATOM_DEVICE_LCD_SUPPORT)) {
 			amdgpu_encoder->rmx_type = RMX_FULL;
 			drm_encoder_init(dev, encoder, &dce_v8_0_encoder_funcs,
-					 DRM_MODE_ENCODER_LVDS);
+					 DRM_MODE_ENCODER_LVDS, NULL);
 			amdgpu_encoder->enc_priv = amdgpu_atombios_encoder_get_lcd_info(amdgpu_encoder);
 		} else if (amdgpu_encoder->devices & (ATOM_DEVICE_CRT_SUPPORT)) {
 			drm_encoder_init(dev, encoder, &dce_v8_0_encoder_funcs,
-					 DRM_MODE_ENCODER_DAC);
+					 DRM_MODE_ENCODER_DAC, NULL);
 			amdgpu_encoder->enc_priv = amdgpu_atombios_encoder_get_dig_info(amdgpu_encoder);
 		} else {
 			drm_encoder_init(dev, encoder, &dce_v8_0_encoder_funcs,
-					 DRM_MODE_ENCODER_TMDS);
+					 DRM_MODE_ENCODER_TMDS, NULL);
 			amdgpu_encoder->enc_priv = amdgpu_atombios_encoder_get_dig_info(amdgpu_encoder);
 		}
 		drm_encoder_helper_add(encoder, &dce_v8_0_dig_helper_funcs);
@@ -3696,13 +3726,13 @@ static void dce_v8_0_encoder_add(struct amdgpu_device *adev,
 		amdgpu_encoder->is_ext_encoder = true;
 		if (amdgpu_encoder->devices & (ATOM_DEVICE_LCD_SUPPORT))
 			drm_encoder_init(dev, encoder, &dce_v8_0_encoder_funcs,
-					 DRM_MODE_ENCODER_LVDS);
+					 DRM_MODE_ENCODER_LVDS, NULL);
 		else if (amdgpu_encoder->devices & (ATOM_DEVICE_CRT_SUPPORT))
 			drm_encoder_init(dev, encoder, &dce_v8_0_encoder_funcs,
-					 DRM_MODE_ENCODER_DAC);
+					 DRM_MODE_ENCODER_DAC, NULL);
 		else
 			drm_encoder_init(dev, encoder, &dce_v8_0_encoder_funcs,
-					 DRM_MODE_ENCODER_TMDS);
+					 DRM_MODE_ENCODER_TMDS, NULL);
 		drm_encoder_helper_add(encoder, &dce_v8_0_ext_helper_funcs);
 		break;
 	}

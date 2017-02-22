@@ -1,4 +1,5 @@
 KASAN_SANITIZE := n
+KCOV_INSTRUMENT := n
 
 CFLAGS_REMOVE_kasan.o = -pg
 # Function splitter causes unnecessary splits in __asan_load1/__asan_store1
@@ -6,3 +7,4 @@ CFLAGS_REMOVE_kasan.o = -pg
 CFLAGS_kasan.o := $(call cc-option, -fno-conserve-stack -fno-stack-protector)
 
 obj-y := kasan.o report.o kasan_init.o
+obj-$(CONFIG_SLAB) += quarantine.o

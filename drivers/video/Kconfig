@@ -24,11 +24,14 @@ source "drivers/gpu/ipu-v3/Kconfig"
 
 source "drivers/gpu/drm/Kconfig"
 
+source "drivers/gpu/arm/Kconfig"
+
 menu "Frame buffer Devices"
 source "drivers/video/fbdev/Kconfig"
 endmenu
 
 source "drivers/video/backlight/Kconfig"
+source "drivers/video/adf/Kconfig"
 
 config VGASTATE
        tristate
@@ -38,6 +41,9 @@ config VIDEOMODE_HELPERS
 	bool
 
 config HDMI
+	bool
+
+config HDMI_NOTIFIERS
 	bool
 
 if VT

@@ -452,7 +452,7 @@ void shmob_drm_crtc_cancel_page_flip(struct shmob_drm_crtc *scrtc,
 	event = scrtc->event;
 	if (event && event->base.file_priv == file) {
 		scrtc->event = NULL;
-		event->base.destroy(&event->base);
+		kfree(&event->base);
 		drm_vblank_put(dev, 0);
 	}
 	spin_unlock_irqrestore(&dev->event_lock, flags);
@@ -613,7 +613,7 @@ int shmob_drm_encoder_create(struct shmob_drm_device *sdev)
 	encoder->possible_crtcs = 1;
 
 	ret = drm_encoder_init(sdev->ddev, encoder, &encoder_funcs,
-			       DRM_MODE_ENCODER_LVDS);
+			       DRM_MODE_ENCODER_LVDS, NULL);
 	if (ret < 0)
 		return ret;
 

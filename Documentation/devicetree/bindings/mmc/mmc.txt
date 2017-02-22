@@ -46,6 +46,7 @@ Optional properties:
 - mmc-hs200-1_2v: eMMC HS200 mode(1.2V I/O) is supported
 - mmc-hs400-1_8v: eMMC HS400 mode(1.8V I/O) is supported
 - mmc-hs400-1_2v: eMMC HS400 mode(1.2V I/O) is supported
+- mmc-hs400-enhanced-strobe: eMMC HS400 enhanced strobe mode is supported
 - dsr: Value the card's (optional) Driver Stage Register (DSR) should be
   programmed with. Valid range: [0 .. 0xffff].
 
@@ -71,6 +72,10 @@ Optional SDIO properties:
 - wakeup-source: Enables wake up of host system on SDIO IRQ assertion
 		 (Legacy property supported: "enable-sdio-wakeup")
 
+Aliases (Optional):
+- If you want to use the fixed index for devices like mmcX / mmcblkX, should
+be represented in the aliases node using following format "mmc(X)".
+(X is an unique number for the alias.)
 
 MMC power sequences:
 --------------------
@@ -144,4 +149,11 @@ mmc3: mmc@01c12000 {
 		interrupts = <10 8>; /* PH10 / EINT10 */
 		interrupt-names = "host-wake";
 	};
+};
+
+Example with aliases nodes:
+
+aliases {
+	mmc0 = &mmc0;	/* Fixed to mmc0/mmcblk0 for &mmc0 */
+	mmc1 = &mmc2;	/* Fixed to mmc1/mmcblk1 for &mmc2 */
 };

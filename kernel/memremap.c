@@ -38,13 +38,15 @@ static void *try_ram_remap(resource_size_t offset, size_t size)
  * memremap() - remap an iomem_resource as cacheable memory
  * @offset: iomem resource start address
  * @size: size of remap
- * @flags: either MEMREMAP_WB or MEMREMAP_WT
+ * @flags: any of MEMREMAP_WB, MEMREMAP_WT and MEMREMAP_WC
  *
  * memremap() is "ioremap" for cases where it is known that the resource
  * being mapped does not have i/o side effects and the __iomem
- * annotation is not applicable.
+ * annotation is not applicable. In the case of multiple flags, the different
+ * mapping types will be attempted in the order listed below until one of
+ * them succeeds.
  *
- * MEMREMAP_WB - matches the default mapping for "System RAM" on
+ * MEMREMAP_WB - matches the default mapping for System RAM on
  * the architecture.  This is usually a read-allocate write-back cache.
  * Morever, if MEMREMAP_WB is specified and the requested remap region is RAM
  * memremap() will bypass establishing a new mapping and instead return
@@ -53,12 +55,20 @@ static void *try_ram_remap(resource_size_t offset, size_t size)
  * MEMREMAP_WT - establish a mapping whereby writes either bypass the
  * cache or are written through to memory and never exist in a
  * cache-dirty state with respect to program visibility.  Attempts to
- * map "System RAM" with this mapping type will fail.
+ * map System RAM with this mapping type will fail.
+ *
+ * MEMREMAP_WC - establish a writecombine mapping, whereby writes may
+ * be coalesced together (e.g. in the CPU's write buffers), but is otherwise
+ * uncached. Attempts to map System RAM with this mapping type will fail.
  */
 void *memremap(resource_size_t offset, size_t size, unsigned long flags)
 {
-	int is_ram = region_intersects(offset, size, "System RAM");
+	int is_ram = region_intersects(offset, size,
+				       IORESOURCE_SYSTEM_RAM, IORES_DESC_NONE);
 	void *addr = NULL;
+
+	if (!flags)
+		return NULL;
 
 	if (is_ram == REGION_MIXED) {
 		WARN_ONCE(1, "memremap attempted on mixed range %pa size: %#lx\n",
@@ -68,12 +78,11 @@ void *memremap(resource_size_t offset, size_t size, unsigned long flags)
 
 	/* Try all mapping types requested until one returns non-NULL */
 	if (flags & MEMREMAP_WB) {
-		flags &= ~MEMREMAP_WB;
 		/*
 		 * MEMREMAP_WB is special in that it can be satisifed
 		 * from the direct map.  Some archs depend on the
 		 * capability of memremap() to autodetect cases where
-		 * the requested range is potentially in "System RAM"
+		 * the requested range is potentially in System RAM.
 		 */
 		if (is_ram == REGION_INTERSECTS)
 			addr = try_ram_remap(offset, size);
@@ -82,21 +91,22 @@ void *memremap(resource_size_t offset, size_t size, unsigned long flags)
 	}
 
 	/*
-	 * If we don't have a mapping yet and more request flags are
-	 * pending then we will be attempting to establish a new virtual
+	 * If we don't have a mapping yet and other request flags are
+	 * present then we will be attempting to establish a new virtual
 	 * address mapping.  Enforce that this mapping is not aliasing
-	 * "System RAM"
+	 * System RAM.
 	 */
-	if (!addr && is_ram == REGION_INTERSECTS && flags) {
+	if (!addr && is_ram == REGION_INTERSECTS && flags != MEMREMAP_WB) {
 		WARN_ONCE(1, "memremap attempted on ram %pa size: %#lx\n",
 				&offset, (unsigned long) size);
 		return NULL;
 	}
 
-	if (!addr && (flags & MEMREMAP_WT)) {
-		flags &= ~MEMREMAP_WT;
+	if (!addr && (flags & MEMREMAP_WT))
 		addr = ioremap_wt(offset, size);
-	}
+
+	if (!addr && (flags & MEMREMAP_WC))
+		addr = ioremap_wc(offset, size);
 
 	return addr;
 }
@@ -111,7 +121,7 @@ EXPORT_SYMBOL(memunmap);
 
 static void devm_memremap_release(struct device *dev, void *res)
 {
-	memunmap(res);
+	memunmap(*(void **)res);
 }
 
 static int devm_memremap_match(struct device *dev, void *res, void *match_data)
@@ -133,8 +143,10 @@ void *devm_memremap(struct device *dev, resource_size_t offset,
 	if (addr) {
 		*ptr = addr;
 		devres_add(dev, ptr);
-	} else
+	} else {
 		devres_free(ptr);
+		return ERR_PTR(-ENXIO);
+	}
 
 	return addr;
 }
@@ -157,13 +169,15 @@ static void devm_memremap_pages_release(struct device *dev, void *res)
 	struct page_map *page_map = res;
 
 	/* pages are dead and unused, undo the arch mapping */
+	mem_hotplug_begin();
 	arch_remove_memory(page_map->res.start, resource_size(&page_map->res));
+	mem_hotplug_done();
 }
 
 void *devm_memremap_pages(struct device *dev, struct resource *res)
 {
 	int is_ram = region_intersects(res->start, resource_size(res),
-			"System RAM");
+				       IORESOURCE_SYSTEM_RAM, IORES_DESC_NONE);
 	struct page_map *page_map;
 	int error, nid;
 
@@ -187,7 +201,9 @@ void *devm_memremap_pages(struct device *dev, struct resource *res)
 	if (nid < 0)
 		nid = numa_mem_id();
 
+	mem_hotplug_begin();
 	error = arch_add_memory(nid, res->start, resource_size(res), true);
+	mem_hotplug_done();
 	if (error) {
 		devres_free(page_map);
 		return ERR_PTR(error);

@@ -47,11 +47,15 @@ struct urb_list {
 };
 
 struct udl_fbdev;
+struct udl_cursor;
+struct udl_cursor_hline;
+struct udl_flip_queue;
 
 struct udl_device {
 	struct device *dev;
 	struct drm_device *ddev;
 	struct usb_device *udev;
+	struct drm_crtc *crtc;
 
 	int sku_pixel_limit;
 
@@ -59,12 +63,16 @@ struct udl_device {
 	atomic_t lost_pixels; /* 1 = a render op failed. Need screen refresh */
 
 	struct udl_fbdev *fbdev;
+	struct udl_cursor *cursor;
 	char mode_buf[1024];
 	uint32_t mode_buf_len;
 	atomic_t bytes_rendered; /* raw pixel-bytes driver asked to render */
 	atomic_t bytes_identical; /* saved effort with backbuffer comparison */
 	atomic_t bytes_sent; /* to usb, after compression including overhead */
 	atomic_t cpu_kcycles_used; /* transpired during pixel processing */
+
+	struct udl_flip_queue *flip_queue;
+	struct mutex transfer_lock; /* to serialize transfers */
 };
 
 struct udl_gem_object {
@@ -89,6 +97,7 @@ struct udl_framebuffer {
 
 /* modeset */
 int udl_modeset_init(struct drm_device *dev);
+void udl_modeset_restore(struct drm_device *dev);
 void udl_modeset_cleanup(struct drm_device *dev);
 int udl_connector_init(struct drm_device *dev, struct drm_encoder *encoder);
 
@@ -108,11 +117,12 @@ void udl_fbdev_unplug(struct drm_device *dev);
 struct drm_framebuffer *
 udl_fb_user_fb_create(struct drm_device *dev,
 		      struct drm_file *file,
-		      struct drm_mode_fb_cmd2 *mode_cmd);
+		      const struct drm_mode_fb_cmd2 *mode_cmd);
 
 int udl_render_hline(struct drm_device *dev, int bpp, struct urb **urb_ptr,
 		     const char *front, char **urb_buf_ptr,
 		     u32 byte_offset, u32 device_byte_offset, u32 byte_width,
+		     struct udl_cursor_hline *cursor_hline,
 		     int *ident_ptr, int *sent_ptr);
 
 int udl_dumb_create(struct drm_file *file_priv,

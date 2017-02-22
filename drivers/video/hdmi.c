@@ -1242,3 +1242,211 @@ int hdmi_infoframe_unpack(union hdmi_infoframe *frame, void *buffer)
 	return ret;
 }
 EXPORT_SYMBOL(hdmi_infoframe_unpack);
+
+/*
+ * audio clock regeneration (acr) parameters
+ * N and CTS computation are based on HDMI specification 1.4b
+ */
+enum hdmi_audio_rate {
+	HDMI_AUDIO_N_CTS_32KHZ,
+	HDMI_AUDIO_N_CTS_44_1KHZ,
+	HDMI_AUDIO_N_CTS_48KHZ,
+};
+
+struct hdmi_audio_acr {
+	unsigned int tmds_clk;
+	struct hdmi_audio_n_cts n_cts;
+};
+
+static const struct hdmi_audio_acr hdmi_audio_standard_acr[3][13] = {
+	[HDMI_AUDIO_N_CTS_32KHZ] = {
+		/* N and CTS values for 32 kHz rate*/
+		{  25174825, {  4576,  28125, 0 } }, /* 25.20/1.001  MHz */
+		{  25200000, {  4096,  25200, 0 } }, /* 25.20        MHz */
+		{  27000000, {  4096,  27000, 0 } }, /* 27.00        MHz */
+		{  27027000, {  4096,  27027, 0 } }, /* 27.00*1.001  MHz */
+		{  54000000, {  4096,  54000, 0 } }, /* 54.00        MHz */
+		{  54054000, {  4096,  54054, 0 } }, /* 54.00*1.001  MHz */
+		{  74175824, { 11648, 210937, 50 } }, /* 74.25/1.001 MHz */
+		{  74250000, {  4096,  74250, 0 } }, /* 74.25        MHz */
+		{ 148351648, { 11648, 421875, 0 } }, /* 148.50/1.001 MHz */
+		{ 148500000, {  4096, 148500, 0 } }, /* 148.50       MHz */
+		{ 296703296, {  5824, 421875, 0 } }, /* 297/1.001 MHz (truncated)*/
+		{ 296703297, {  5824, 421875, 0 } }, /* 297/1.001 MHz (rounded)*/
+		{ 297000000, {  3072, 222750, 0 } }, /* 297          MHz */
+	},
+	[HDMI_AUDIO_N_CTS_44_1KHZ] = {
+		/* N and CTS values for 44.1 kHz, 88.2 kHz and 176.4 kHz rates*/
+		{  25174825, {  7007,  31250, 0 } }, /* 25.20/1.001  MHz */
+		{  25200000, {  6272,  28000, 0 } }, /* 25.20        MHz */
+		{  27000000, {  6272,  30000, 0 } }, /* 27.00        MHz */
+		{  27027000, {  6272,  30030, 0 } }, /* 27.00*1.001  MHz */
+		{  54000000, {  6272,  60000, 0 } }, /* 54.00        MHz */
+		{  54054000, {  6272,  60060, 0 } }, /* 54.00*1.001  MHz */
+		{  74175824, { 17836, 234375, 0 } }, /* 74.25/1.001  MHz */
+		{  74250000, {  6272,  82500, 0 } }, /* 74.25        MHz */
+		{ 148351648, {  8918, 234375, 0 } }, /* 148.50/1.001 MHz */
+		{ 148500000, {  6272, 165000, 0 } }, /* 148.50       MHz */
+		{ 296703296, {  4459, 234375, 0 } }, /* 297/1.001 MHz (truncated) */
+		{ 296703297, {  4459, 234375, 0 } }, /* 297/1.001 MHz (rounded) */
+		{ 297000000, {  4704, 247500, 0 } }, /* 297          MHz */
+	},
+	[HDMI_AUDIO_N_CTS_48KHZ] = {
+		/* N and CTS values for 48 kHz, 96 kHz and 192 kHz rates*/
+		{  25174825, {  6864,  28125, 0 } }, /* 25.20/1.001  MHz */
+		{  25200000, {  6144,  25200, 0 } }, /* 25.20        MHz */
+		{  27000000, {  6144,  27000, 0 } }, /* 27.00        MHz */
+		{  27027000, {  6144,  27027, 0 } }, /* 27.00*1.001  MHz */
+		{  54000000, {  6144,  54000, 0 } }, /* 54.00        MHz */
+		{  54054000, {  6144,  54054, 0 } }, /* 54.00*1.001  MHz */
+		{  74175824, { 11648, 140625, 0 } }, /* 74.25/1.001  MHz */
+		{  74250000, {  6144,  74250, 0 } }, /* 74.25        MHz */
+		{ 148351648, {  5824, 140625, 0 } }, /* 148.50/1.001 MHz */
+		{ 148500000, {  6144, 148500, 0 } }, /* 148.50       MHz */
+		{ 296703296, {  5824, 281250, 0 } }, /* 297/1.001 MHz (truncated) */
+		{ 296703297, {  5824, 281250, 0 } }, /* 297/1.001 MHz (rounded) */
+		{ 297000000, {  5120, 247500, 0 } }, /* 297          MHz */
+	}
+};
+
+/**
+ * hdmi_audio_get_coherent_n_cts() - compute N and CTS parameters for coherent
+ * clocks. Coherent clock means that audio and TMDS clocks have the same
+ * source (no drifts between clocks).
+ *
+ * @audio_fs: audio frame clock frequency in Hz
+ * @tmds_clk: HDMI TMDS clock frequency in Hz
+ * @n_cts: N and CTS parameter returned to user
+ *
+ * Values computed are based on table described in HDMI specification 1.4b
+ *
+ * Returns 0 on success or a negative error code on failure.
+ */
+int hdmi_audio_get_coherent_n_cts(unsigned int audio_fs,
+				  unsigned int tmds_clk,
+				  struct hdmi_audio_n_cts *n_cts)
+{
+	int audio_freq_id, i;
+	int rate_coeff = 1;
+	u64 val, min;
+	const struct hdmi_audio_acr  *acr_table;
+	const struct hdmi_audio_n_cts *predef_n_cts = NULL;
+
+	switch (audio_fs) {
+	case 32000:
+		audio_freq_id = HDMI_AUDIO_N_CTS_32KHZ;
+		n_cts->n = 4096;
+		break;
+	case 44100:
+		audio_freq_id = HDMI_AUDIO_N_CTS_44_1KHZ;
+		n_cts->n = 6272;
+		break;
+	case 48000:
+		audio_freq_id = HDMI_AUDIO_N_CTS_48KHZ;
+		n_cts->n = 6144;
+		break;
+	case 88200:
+		audio_freq_id = HDMI_AUDIO_N_CTS_44_1KHZ;
+		rate_coeff = 2;
+		n_cts->n = 6272 * 2;
+		break;
+	case 96000:
+		audio_freq_id = HDMI_AUDIO_N_CTS_48KHZ;
+		rate_coeff = 2;
+		n_cts->n = 6144 * 2;
+		break;
+	case 176400:
+		audio_freq_id = HDMI_AUDIO_N_CTS_44_1KHZ;
+		rate_coeff = 4;
+		n_cts->n = 6272 * 4;
+		break;
+	case 192000:
+		audio_freq_id = HDMI_AUDIO_N_CTS_48KHZ;
+		rate_coeff = 4;
+		n_cts->n = 6144 * 4;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	acr_table = hdmi_audio_standard_acr[audio_freq_id];
+	for (i = 0; i < ARRAY_SIZE(hdmi_audio_standard_acr[0]); i++) {
+		if (tmds_clk == acr_table[i].tmds_clk) {
+			predef_n_cts = &acr_table[i].n_cts;
+			n_cts->n = predef_n_cts->n * rate_coeff;
+			n_cts->cts = predef_n_cts->cts;
+			n_cts->cts_1_ratio = predef_n_cts->cts_1_ratio;
+			return 0;
+		}
+	}
+
+	/*
+	 * Pre-defined frequency not found. Compute CTS using formula:
+	 * CTS = (Ftdms_clk * N) / (128 * audio_fs)
+	 */
+	val = (u64)tmds_clk * n_cts->n;
+	n_cts->cts = div64_u64(val, 128UL * audio_fs);
+
+	n_cts->cts_1_ratio = 0;
+	min = (u64)n_cts->cts * 128UL * audio_fs;
+	if (min < val) {
+		/*
+		 * Non-accurate value for CTS
+		 * compute ratio, needed by user to alternate in ACR
+		 * between CTS and CTS + 1 value.
+		 */
+		n_cts->cts_1_ratio = ((u32)(val - min)) * 100 /
+				     (128 * audio_fs);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(hdmi_audio_get_coherent_n_cts);
+
+/**
+ * hdmi_audio_get_non_coherent_n() - get N parameter for non-coherent
+ * clocks. None-coherent clocks means that audio and TMDS clocks have not the
+ * same source (drifts between clocks). In this case assumption is that CTS is
+ * automatically calculated by hardware.
+ *
+ * @audio_fs: audio frame clock frequency in Hz
+ *
+ * Values computed are based on table described in HDMI specification 1.4b
+ *
+ * Returns n value.
+ */
+int hdmi_audio_get_non_coherent_n(unsigned int audio_fs)
+{
+	unsigned int n;
+
+	switch (audio_fs) {
+	case 32000:
+		n = 4096;
+		break;
+	case 44100:
+		n = 6272;
+		break;
+	case 48000:
+		n = 6144;
+		break;
+	case 88200:
+		n = 6272 * 2;
+		break;
+	case 96000:
+		n = 6144 * 2;
+		break;
+	case 176400:
+		n = 6272 * 4;
+		break;
+	case 192000:
+		n = 6144 * 4;
+		break;
+	default:
+		/* Not pre-defined, recommended value: 128 * fs / 1000 */
+		n = (audio_fs * 128) / 1000;
+	}
+
+	return n;
+}
+EXPORT_SYMBOL(hdmi_audio_get_non_coherent_n);
+

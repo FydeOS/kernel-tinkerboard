@@ -27,6 +27,7 @@
  */
 
 #include <linux/debugfs.h>
+#include <linux/fence.h>
 #include <linux/fs.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -55,37 +56,48 @@ static struct idr drm_minors_idr;
 
 static struct dentry *drm_debugfs_root;
 
-void drm_err(const char *format, ...)
+#define DRM_PRINTK_FMT "[" DRM_NAME ":%s]%s %pV"
+
+void drm_dev_printk(const struct device *dev, const char *level,
+		    unsigned int category, const char *function_name,
+		    const char *prefix, const char *format, ...)
 {
 	struct va_format vaf;
 	va_list args;
 
-	va_start(args, format);
-
-	vaf.fmt = format;
-	vaf.va = &args;
-
-	printk(KERN_ERR "[" DRM_NAME ":%ps] *ERROR* %pV",
-	       __builtin_return_address(0), &vaf);
-
-	va_end(args);
-}
-EXPORT_SYMBOL(drm_err);
-
-void drm_ut_debug_printk(const char *function_name, const char *format, ...)
-{
-	struct va_format vaf;
-	va_list args;
+	if (category != DRM_UT_NONE && !(drm_debug & category))
+		return;
 
 	va_start(args, format);
 	vaf.fmt = format;
 	vaf.va = &args;
 
-	printk(KERN_DEBUG "[" DRM_NAME ":%s] %pV", function_name, &vaf);
+	dev_printk(level, dev, DRM_PRINTK_FMT, function_name, prefix,
+		   &vaf);
 
 	va_end(args);
 }
-EXPORT_SYMBOL(drm_ut_debug_printk);
+EXPORT_SYMBOL(drm_dev_printk);
+
+void drm_printk(const char *level, unsigned int category,
+		const char *function_name, const char *prefix,
+		const char *format, ...)
+{
+	struct va_format vaf;
+	va_list args;
+
+	if (category != DRM_UT_NONE && !(drm_debug & category))
+		return;
+
+	va_start(args, format);
+	vaf.fmt = format;
+	vaf.va = &args;
+
+	printk("%s" DRM_PRINTK_FMT, level, function_name, prefix, &vaf);
+
+	va_end(args);
+}
+EXPORT_SYMBOL(drm_printk);
 
 struct drm_master *drm_master_create(struct drm_minor *minor)
 {
@@ -380,9 +392,6 @@ struct drm_minor *drm_minor_acquire(unsigned int minor_id)
 
 	if (!minor) {
 		return ERR_PTR(-ENODEV);
-	} else if (drm_device_is_unplugged(minor->dev)) {
-		drm_dev_unref(minor->dev);
-		return ERR_PTR(-ENODEV);
 	}
 
 	return minor;
@@ -468,8 +477,6 @@ void drm_unplug_dev(struct drm_device *dev)
 	drm_minor_unregister(dev, DRM_MINOR_CONTROL);
 
 	mutex_lock(&drm_global_mutex);
-
-	drm_device_set_unplugged(dev);
 
 	if (dev->open_count == 0) {
 		drm_put_dev(dev);
@@ -633,8 +640,22 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver,
 		}
 	}
 
+	if (parent) {
+		ret = drm_dev_set_unique(dev, dev_name(parent));
+		if (ret)
+			goto err_setunique;
+	}
+
+#ifdef CONFIG_DRM_DMA_SYNC
+	dev->atomic_in_fence_context = fence_context_alloc(1);
+	atomic_set(&dev->atomic_in_fence_seqno, 0);
+#endif
+
 	return dev;
 
+err_setunique:
+	if (drm_core_check_feature(dev, DRIVER_GEM))
+		drm_gem_destroy(dev);
 err_ctxbitmap:
 	drm_legacy_ctxbitmap_cleanup(dev);
 	drm_ht_remove(&dev->map_hash);
@@ -710,7 +731,11 @@ EXPORT_SYMBOL(drm_dev_unref);
  *
  * Register the DRM device @dev with the system, advertise device to user-space
  * and start normal device operation. @dev must be allocated via drm_dev_alloc()
- * previously.
+ * previously. Right after drm_dev_register() the driver should call
+ * drm_connector_register_all() to register all connectors in sysfs. This is
+ * a separate call for backward compatibility with drivers still using
+ * the deprecated ->load() callback, where connectors are registered from within
+ * the ->load() callback.
  *
  * Never call this twice on any device!
  *
@@ -797,23 +822,18 @@ EXPORT_SYMBOL(drm_dev_unregister);
 /**
  * drm_dev_set_unique - Set the unique name of a DRM device
  * @dev: device of which to set the unique name
- * @fmt: format string for unique name
+ * @name: unique name
  *
- * Sets the unique name of a DRM device using the specified format string and
- * a variable list of arguments. Drivers can use this at driver probe time if
- * the unique name of the devices they drive is static.
+ * Sets the unique name of a DRM device using the specified string. Drivers
+ * can use this at driver probe time if the unique name of the devices they
+ * drive is static.
  *
  * Return: 0 on success or a negative error code on failure.
  */
-int drm_dev_set_unique(struct drm_device *dev, const char *fmt, ...)
+int drm_dev_set_unique(struct drm_device *dev, const char *name)
 {
-	va_list ap;
-
 	kfree(dev->unique);
-
-	va_start(ap, fmt);
-	dev->unique = kvasprintf(GFP_KERNEL, fmt, ap);
-	va_end(ap);
+	dev->unique = kstrdup(name, GFP_KERNEL);
 
 	return dev->unique ? 0 : -ENOMEM;
 }
@@ -873,6 +893,9 @@ out_unlock:
 	return err;
 }
 
+/* When set to true, allow set/drop master ioctls as normal user */
+bool drm_master_relax;
+
 static const struct file_operations drm_stub_fops = {
 	.owner = THIS_MODULE,
 	.open = drm_stub_open,
@@ -903,6 +926,12 @@ static int __init drm_core_init(void)
 		goto err_p3;
 	}
 
+	if (!debugfs_create_bool("drm_master_relax", S_IRUSR | S_IWUSR,
+				drm_debugfs_root, &drm_master_relax)) {
+		DRM_ERROR(
+			  "Cannot create /sys/kernel/debug/dri/drm_master_relax\n");
+	}
+
 	DRM_INFO("Initialized %s %d.%d.%d %s\n",
 		 CORE_NAME, CORE_MAJOR, CORE_MINOR, CORE_PATCHLEVEL, CORE_DATE);
 	return 0;
@@ -918,7 +947,7 @@ err_p1:
 
 static void __exit drm_core_exit(void)
 {
-	debugfs_remove(drm_debugfs_root);
+	debugfs_remove_recursive(drm_debugfs_root);
 	drm_sysfs_destroy();
 
 	unregister_chrdev(DRM_MAJOR, "drm");

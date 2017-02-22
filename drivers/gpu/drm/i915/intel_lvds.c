@@ -51,7 +51,7 @@ struct intel_lvds_encoder {
 	struct intel_encoder base;
 
 	bool is_dual_link;
-	u32 reg;
+	i915_reg_t reg;
 	u32 a3_power;
 
 	struct intel_lvds_connector *attached_connector;
@@ -75,22 +75,30 @@ static bool intel_lvds_get_hw_state(struct intel_encoder *encoder,
 	struct intel_lvds_encoder *lvds_encoder = to_lvds_encoder(&encoder->base);
 	enum intel_display_power_domain power_domain;
 	u32 tmp;
+	bool ret;
 
 	power_domain = intel_display_port_power_domain(encoder);
-	if (!intel_display_power_is_enabled(dev_priv, power_domain))
+	if (!intel_display_power_get_if_enabled(dev_priv, power_domain))
 		return false;
+
+	ret = false;
 
 	tmp = I915_READ(lvds_encoder->reg);
 
 	if (!(tmp & LVDS_PORT_EN))
-		return false;
+		goto out;
 
 	if (HAS_PCH_CPT(dev))
 		*pipe = PORT_TO_PIPE_CPT(tmp);
 	else
 		*pipe = PORT_TO_PIPE(tmp);
 
-	return true;
+	ret = true;
+
+out:
+	intel_display_power_put(dev_priv, power_domain);
+
+	return ret;
 }
 
 static void intel_lvds_get_config(struct intel_encoder *encoder,
@@ -100,7 +108,6 @@ static void intel_lvds_get_config(struct intel_encoder *encoder,
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct intel_lvds_encoder *lvds_encoder = to_lvds_encoder(&encoder->base);
 	u32 tmp, flags = 0;
-	int dotclock;
 
 	tmp = I915_READ(lvds_encoder->reg);
 	if (tmp & LVDS_HSYNC_POLARITY)
@@ -121,12 +128,7 @@ static void intel_lvds_get_config(struct intel_encoder *encoder,
 		pipe_config->gmch_pfit.control |= tmp & PANEL_8TO6_DITHER_ENABLE;
 	}
 
-	dotclock = pipe_config->port_clock;
-
-	if (HAS_PCH_SPLIT(dev_priv->dev))
-		ironlake_check_encoder_dotclock(pipe_config, dotclock);
-
-	pipe_config->base.adjusted_mode.crtc_clock = dotclock;
+	pipe_config->base.adjusted_mode.crtc_clock = pipe_config->port_clock;
 }
 
 static void intel_pre_enable_lvds(struct intel_encoder *encoder)
@@ -142,7 +144,7 @@ static void intel_pre_enable_lvds(struct intel_encoder *encoder)
 	if (HAS_PCH_SPLIT(dev)) {
 		assert_fdi_rx_pll_disabled(dev_priv, pipe);
 		assert_shared_dpll_disabled(dev_priv,
-					    intel_crtc_to_shared_dpll(crtc));
+					    crtc->config->shared_dpll);
 	} else {
 		assert_pll_disabled(dev_priv, pipe);
 	}
@@ -183,7 +185,7 @@ static void intel_pre_enable_lvds(struct intel_encoder *encoder)
 	/* Set the dithering flag on LVDS as needed, note that there is no
 	 * special lvds dither control bit on pch-split platforms, dithering is
 	 * only controlled through the PIPECONF reg. */
-	if (INTEL_INFO(dev)->gen == 4) {
+	if (IS_GEN4(dev_priv)) {
 		/* Bspec wording suggests that LVDS port dithering only exists
 		 * for 18bpp panels. */
 		if (crtc->config->dither && crtc->config->pipe_bpp == 18)
@@ -210,7 +212,7 @@ static void intel_enable_lvds(struct intel_encoder *encoder)
 	struct intel_connector *intel_connector =
 		&lvds_encoder->attached_connector->base;
 	struct drm_i915_private *dev_priv = dev->dev_private;
-	u32 ctl_reg, stat_reg;
+	i915_reg_t ctl_reg, stat_reg;
 
 	if (HAS_PCH_SPLIT(dev)) {
 		ctl_reg = PCH_PP_CONTROL;
@@ -235,7 +237,7 @@ static void intel_disable_lvds(struct intel_encoder *encoder)
 	struct drm_device *dev = encoder->base.dev;
 	struct intel_lvds_encoder *lvds_encoder = to_lvds_encoder(&encoder->base);
 	struct drm_i915_private *dev_priv = dev->dev_private;
-	u32 ctl_reg, stat_reg;
+	i915_reg_t ctl_reg, stat_reg;
 
 	if (HAS_PCH_SPLIT(dev)) {
 		ctl_reg = PCH_PP_CONTROL;
@@ -469,11 +471,8 @@ static int intel_lid_notify(struct notifier_block *nb, unsigned long val,
 	 * and as part of the cleanup in the hw state restore we also redisable
 	 * the vga plane.
 	 */
-	if (!HAS_PCH_SPLIT(dev)) {
-		drm_modeset_lock_all(dev);
+	if (!HAS_PCH_SPLIT(dev))
 		intel_display_resume(dev);
-		drm_modeset_unlock_all(dev);
-	}
 
 	dev_priv->modeset_restore = MODESET_DONE;
 
@@ -772,57 +771,6 @@ static const struct dmi_system_id intel_no_lvds[] = {
 	{ }	/* terminating entry */
 };
 
-/*
- * Enumerate the child dev array parsed from VBT to check whether
- * the LVDS is present.
- * If it is present, return 1.
- * If it is not present, return false.
- * If no child dev is parsed from VBT, it assumes that the LVDS is present.
- */
-static bool lvds_is_present_in_vbt(struct drm_device *dev,
-				   u8 *i2c_pin)
-{
-	struct drm_i915_private *dev_priv = dev->dev_private;
-	int i;
-
-	if (!dev_priv->vbt.child_dev_num)
-		return true;
-
-	for (i = 0; i < dev_priv->vbt.child_dev_num; i++) {
-		union child_device_config *uchild = dev_priv->vbt.child_dev + i;
-		struct old_child_dev_config *child = &uchild->old;
-
-		/* If the device type is not LFP, continue.
-		 * We have to check both the new identifiers as well as the
-		 * old for compatibility with some BIOSes.
-		 */
-		if (child->device_type != DEVICE_TYPE_INT_LFP &&
-		    child->device_type != DEVICE_TYPE_LFP)
-			continue;
-
-		if (intel_gmbus_is_valid_pin(dev_priv, child->i2c_pin))
-			*i2c_pin = child->i2c_pin;
-
-		/* However, we cannot trust the BIOS writers to populate
-		 * the VBT correctly.  Since LVDS requires additional
-		 * information from AIM blocks, a non-zero addin offset is
-		 * a good indicator that the LVDS is actually present.
-		 */
-		if (child->addin_offset)
-			return true;
-
-		/* But even then some BIOS writers perform some black magic
-		 * and instantiate the device without reference to any
-		 * additional data.  Trust that if the VBT was written into
-		 * the OpRegion then they have validated the LVDS's existence.
-		 */
-		if (dev_priv->opregion.vbt)
-			return true;
-	}
-
-	return false;
-}
-
 static int intel_dual_link_lvds_callback(const struct dmi_system_id *id)
 {
 	DRM_INFO("Forcing lvds to dual link mode on %s\n", id->ident);
@@ -939,7 +887,7 @@ void intel_lvds_init(struct drm_device *dev)
 	struct drm_display_mode *downclock_mode = NULL;
 	struct edid *edid;
 	struct drm_crtc *crtc;
-	u32 lvds_reg;
+	i915_reg_t lvds_reg;
 	u32 lvds;
 	int pipe;
 	u8 pin;
@@ -972,14 +920,14 @@ void intel_lvds_init(struct drm_device *dev)
 	if (HAS_PCH_SPLIT(dev)) {
 		if ((lvds & LVDS_DETECTED) == 0)
 			return;
-		if (dev_priv->vbt.edp_support) {
+		if (dev_priv->vbt.edp.support) {
 			DRM_DEBUG_KMS("disable LVDS for eDP support\n");
 			return;
 		}
 	}
 
 	pin = GMBUS_PIN_PANEL;
-	if (!lvds_is_present_in_vbt(dev, &pin)) {
+	if (!intel_bios_is_lvds_present(dev_priv, &pin)) {
 		if ((lvds & LVDS_PORT_EN) == 0) {
 			DRM_DEBUG_KMS("LVDS is not present in VBT\n");
 			return;
@@ -1025,7 +973,7 @@ void intel_lvds_init(struct drm_device *dev)
 			   DRM_MODE_CONNECTOR_LVDS);
 
 	drm_encoder_init(dev, &intel_encoder->base, &intel_lvds_enc_funcs,
-			 DRM_MODE_ENCODER_LVDS);
+			 DRM_MODE_ENCODER_LVDS, NULL);
 
 	intel_encoder->enable = intel_enable_lvds;
 	intel_encoder->pre_enable = intel_pre_enable_lvds;
@@ -1164,8 +1112,7 @@ out:
 	DRM_DEBUG_KMS("detected %s-link lvds configuration\n",
 		      lvds_encoder->is_dual_link ? "dual" : "single");
 
-	lvds_encoder->a3_power = I915_READ(lvds_encoder->reg) &
-				 LVDS_A3_POWER_MASK;
+	lvds_encoder->a3_power = lvds & LVDS_A3_POWER_MASK;
 
 	lvds_connector->lid_notifier.notifier_call = intel_lid_notify;
 	if (acpi_lid_notifier_register(&lvds_connector->lid_notifier)) {

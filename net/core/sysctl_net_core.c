@@ -26,6 +26,7 @@ static int zero = 0;
 static int one = 1;
 static int min_sndbuf = SOCK_MIN_SNDBUF;
 static int min_rcvbuf = SOCK_MIN_RCVBUF;
+static int max_skb_frags = MAX_SKB_FRAGS;
 
 static int net_msg_warn;	/* Unused, but still a sysctl */
 
@@ -392,10 +393,28 @@ static struct ctl_table net_core_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec
 	},
+	{
+		.procname	= "max_skb_frags",
+		.data		= &sysctl_max_skb_frags,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &one,
+		.extra2		= &max_skb_frags,
+	},
 	{ }
 };
 
 static struct ctl_table netns_core_table[] = {
+	{
+		.procname	= "android_paranoid",
+		.data		= &init_net.core.sysctl_android_paranoid,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.extra1		= &zero,
+		.extra2		= &one,
+		.proc_handler	= proc_dointvec_minmax
+	},
 	{
 		.procname	= "somaxconn",
 		.data		= &init_net.core.sysctl_somaxconn,
@@ -412,6 +431,7 @@ static __net_init int sysctl_core_net_init(struct net *net)
 	struct ctl_table *tbl;
 
 	net->core.sysctl_somaxconn = SOMAXCONN;
+	net->core.sysctl_android_paranoid = 0;
 
 	tbl = netns_core_table;
 	if (!net_eq(net, &init_net)) {
@@ -419,11 +439,12 @@ static __net_init int sysctl_core_net_init(struct net *net)
 		if (tbl == NULL)
 			goto err_dup;
 
-		tbl[0].data = &net->core.sysctl_somaxconn;
+		tbl[0].data = &net->core.sysctl_android_paranoid;
+		tbl[1].data = &net->core.sysctl_somaxconn;
 
-		/* Don't export any sysctls to unprivileged users */
+		/* Don't export somaxconn to unprivileged users */
 		if (net->user_ns != &init_user_ns) {
-			tbl[0].procname = NULL;
+			tbl[1].procname = NULL;
 		}
 	}
 

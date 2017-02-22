@@ -73,6 +73,8 @@
 #define EDID_QUIRK_FORCE_8BPC			(1 << 8)
 /* Force 12bpc */
 #define EDID_QUIRK_FORCE_12BPC			(1 << 9)
+/* Force 6bpc */
+#define EDID_QUIRK_FORCE_6BPC			(1 << 10)
 
 struct detailed_mode_closure {
 	struct drm_connector *connector;
@@ -98,6 +100,9 @@ static struct edid_quirk {
 	{ "API", 0x7602, EDID_QUIRK_PREFER_LARGE_60 },
 	/* Unknown Acer */
 	{ "ACR", 2423, EDID_QUIRK_FIRST_DETAILED_PREFERRED },
+
+	/* AEO model 0 reports 8 bpc, but is a 6 bpc panel */
+	{ "AEO", 0, EDID_QUIRK_FORCE_6BPC },
 
 	/* Belinea 10 15 55 */
 	{ "MAX", 1516, EDID_QUIRK_PREFER_LARGE_60 },
@@ -2545,6 +2550,33 @@ cea_mode_alternate_clock(const struct drm_display_mode *cea_mode)
 	return clock;
 }
 
+static u8 drm_match_cea_mode_clock_tolerance(const struct drm_display_mode *to_match,
+					     unsigned int clock_tolerance)
+{
+	u8 mode;
+
+	if (!to_match->clock)
+		return 0;
+
+	for (mode = 0; mode < ARRAY_SIZE(edid_cea_modes); mode++) {
+		const struct drm_display_mode *cea_mode = &edid_cea_modes[mode];
+		unsigned int clock1, clock2;
+
+		/* Check both 60Hz and 59.94Hz */
+		clock1 = cea_mode->clock;
+		clock2 = cea_mode_alternate_clock(cea_mode);
+
+		if (abs(to_match->clock - clock1) > clock_tolerance &&
+		    abs(to_match->clock - clock2) > clock_tolerance)
+			continue;
+
+		if (drm_mode_equal_no_clocks(to_match, cea_mode))
+			return mode + 1;
+	}
+
+	return 0;
+}
+
 /**
  * drm_match_cea_mode - look for a CEA mode matching given mode
  * @to_match: display mode
@@ -2607,6 +2639,33 @@ hdmi_mode_alternate_clock(const struct drm_display_mode *hdmi_mode)
 		return hdmi_mode->clock;
 
 	return cea_mode_alternate_clock(hdmi_mode);
+}
+
+static u8 drm_match_hdmi_mode_clock_tolerance(const struct drm_display_mode *to_match,
+					      unsigned int clock_tolerance)
+{
+	u8 mode;
+
+	if (!to_match->clock)
+		return 0;
+
+	for (mode = 0; mode < ARRAY_SIZE(edid_4k_modes); mode++) {
+		const struct drm_display_mode *hdmi_mode = &edid_4k_modes[mode];
+		unsigned int clock1, clock2;
+
+		/* Make sure to also match alternate clocks */
+		clock1 = hdmi_mode->clock;
+		clock2 = hdmi_mode_alternate_clock(hdmi_mode);
+
+		if (abs(to_match->clock - clock1) > clock_tolerance &&
+		    abs(to_match->clock - clock2) > clock_tolerance)
+			continue;
+
+		if (drm_mode_equal_no_clocks(to_match, hdmi_mode))
+			return mode + 1;
+	}
+
+	return 0;
 }
 
 /*
@@ -3119,14 +3178,18 @@ static void fixup_detailed_cea_mode_clock(struct drm_display_mode *mode)
 	u8 mode_idx;
 	const char *type;
 
-	mode_idx = drm_match_cea_mode(mode) - 1;
+	/*
+	 * allow 5kHz clock difference either way to account for
+	 * the 10kHz clock resolution limit of detailed timings.
+	 */
+	mode_idx = drm_match_cea_mode_clock_tolerance(mode, 5) - 1;
 	if (mode_idx < ARRAY_SIZE(edid_cea_modes)) {
 		type = "CEA";
 		cea_mode = &edid_cea_modes[mode_idx];
 		clock1 = cea_mode->clock;
 		clock2 = cea_mode_alternate_clock(cea_mode);
 	} else {
-		mode_idx = drm_match_hdmi_mode(mode) - 1;
+		mode_idx = drm_match_hdmi_mode_clock_tolerance(mode, 5) - 1;
 		if (mode_idx < ARRAY_SIZE(edid_4k_modes)) {
 			type = "HDMI";
 			cea_mode = &edid_4k_modes[mode_idx];
@@ -3819,6 +3882,9 @@ int drm_add_edid_modes(struct drm_connector *connector, struct edid *edid)
 		edid_fixup_preferred(connector, quirks);
 
 	drm_add_display_info(edid, &connector->display_info, connector);
+
+	if (quirks & EDID_QUIRK_FORCE_6BPC)
+		connector->display_info.bpc = 6;
 
 	if (quirks & EDID_QUIRK_FORCE_8BPC)
 		connector->display_info.bpc = 8;

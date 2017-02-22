@@ -22,6 +22,7 @@
  */
 
 #include <linux/dmi.h>
+#include <linux/gpio.h>
 #include <linux/i2c.h>
 #include <linux/platform_data/atmel_mxt_ts.h>
 #include <linux/input.h>
@@ -34,6 +35,7 @@
 #define ATMEL_TS_I2C_ADDR	0x4a
 #define ATMEL_TS_I2C_BL_ADDR	0x26
 #define CYAPA_TP_I2C_ADDR	0x67
+#define ELAN_TP_I2C_ADDR	0x15
 #define ISL_ALS_I2C_ADDR	0x44
 #define TAOS_ALS_I2C_ADDR	0x29
 
@@ -73,16 +75,22 @@ struct i2c_peripheral {
 	int tries;
 };
 
-#define MAX_I2C_PERIPHERALS 3
+#define MAX_I2C_PERIPHERALS 4
 
 struct chromeos_laptop {
 	struct i2c_peripheral i2c_peripherals[MAX_I2C_PERIPHERALS];
+	bool has_keyboard_backlight;
 };
 
 static struct chromeos_laptop *cros_laptop;
 
 static struct i2c_board_info cyapa_device = {
 	I2C_BOARD_INFO("cyapa", CYAPA_TP_I2C_ADDR),
+	.flags		= I2C_CLIENT_WAKE,
+};
+
+static struct i2c_board_info elantech_device = {
+	I2C_BOARD_INFO("elan_i2c", ELAN_TP_I2C_ADDR),
 	.flags		= I2C_CLIENT_WAKE,
 };
 
@@ -98,36 +106,13 @@ static struct i2c_board_info tsl2563_als_device = {
 	I2C_BOARD_INFO("tsl2563", TAOS_ALS_I2C_ADDR),
 };
 
-static int mxt_t19_keys[] = {
-	KEY_RESERVED,
-	KEY_RESERVED,
-	KEY_RESERVED,
-	KEY_RESERVED,
-	KEY_RESERVED,
-	BTN_LEFT
-};
-
-static struct mxt_platform_data atmel_224s_tp_platform_data = {
-	.irqflags		= IRQF_TRIGGER_FALLING,
-	.t19_num_keys		= ARRAY_SIZE(mxt_t19_keys),
-	.t19_keymap		= mxt_t19_keys,
-	.suspend_mode		= MXT_SUSPEND_T9_CTRL,
-};
-
 static struct i2c_board_info atmel_224s_tp_device = {
 	I2C_BOARD_INFO("atmel_mxt_tp", ATMEL_TP_I2C_ADDR),
-	.platform_data = &atmel_224s_tp_platform_data,
 	.flags		= I2C_CLIENT_WAKE,
-};
-
-static struct mxt_platform_data atmel_1664s_platform_data = {
-	.irqflags		= IRQF_TRIGGER_FALLING,
-	.suspend_mode		= MXT_SUSPEND_T9_CTRL,
 };
 
 static struct i2c_board_info atmel_1664s_device = {
 	I2C_BOARD_INFO("atmel_mxt_ts", ATMEL_TS_I2C_ADDR),
-	.platform_data = &atmel_1664s_platform_data,
 	.flags		= I2C_CLIENT_WAKE,
 };
 
@@ -163,7 +148,12 @@ static struct i2c_client *__add_probed_i2c_device(
 			       __func__, name);
 			return NULL;
 		}
-		info->irq = dev_data->instance;
+
+		/* Use Peripheral IRQ if devfn is 0, otherwise use GPIO IRQ */
+		if (dev_data->devfn != 0)
+			info->irq = gpio_to_irq(dev_data->instance);
+		else
+			info->irq = dev_data->instance;
 	}
 
 	adapter = i2c_get_adapter(bus);
@@ -306,6 +296,16 @@ static int setup_atmel_224s_tp(enum i2c_adapter_type type)
 	return (!tp) ? -EAGAIN : 0;
 }
 
+static int setup_elantech_tp(enum i2c_adapter_type type)
+{
+	if (tp)
+		return 0;
+
+	/* add elantech touchpad */
+	tp = add_i2c_device("trackpad", type, &elantech_device);
+	return (!tp) ? -EAGAIN : 0;
+}
+
 static int setup_atmel_1664s_ts(enum i2c_adapter_type type)
 {
 	const unsigned short addr_list[] = { ATMEL_TS_I2C_BL_ADDR,
@@ -347,6 +347,22 @@ static int setup_tsl2563_als(enum i2c_adapter_type type)
 	/* add tsl2563 light sensor */
 	als = add_i2c_device(NULL, type, &tsl2563_als_device);
 	return (!als) ? -EAGAIN : 0;
+}
+
+static struct platform_device *kb_backlight_device;
+
+static void setup_keyboard_backlight(void)
+{
+	if (kb_backlight_device)
+		return;
+
+	kb_backlight_device =
+		platform_device_register_simple("chromeos-keyboard-leds",
+						-1, NULL, 0);
+	if (IS_ERR(kb_backlight_device)) {
+		pr_warn("Error registering Chrome OS keyboard LEDs.\n");
+		kb_backlight_device = NULL;
+	}
 }
 
 static int __init chromeos_laptop_dmi_matched(const struct dmi_system_id *id)
@@ -404,6 +420,10 @@ static int chromeos_laptop_probe(struct platform_device *pdev)
 		}
 	}
 
+	/* Add keyboard backlight device if present. */
+	if (cros_laptop->has_keyboard_backlight)
+		setup_keyboard_backlight();
+
 	return ret;
 }
 
@@ -432,6 +452,7 @@ static struct chromeos_laptop chromebook_pixel = {
 		/* Light Sensor. */
 		{ .add = setup_isl29018_als, I2C_ADAPTER_PANEL },
 	},
+	.has_keyboard_backlight = true,
 };
 
 static struct chromeos_laptop hp_chromebook_14 = {
@@ -445,6 +466,8 @@ static struct chromeos_laptop dell_chromebook_11 = {
 	.i2c_peripherals = {
 		/* Touchpad. */
 		{ .add = setup_cyapa_tp, I2C_ADAPTER_DESIGNWARE_0 },
+		/* Elan Touchpad option. */
+		{ .add = setup_elantech_tp, I2C_ADAPTER_DESIGNWARE_0 },
 	},
 };
 
@@ -475,6 +498,8 @@ static struct chromeos_laptop acer_c720 = {
 		{ .add = setup_atmel_1664s_ts, I2C_ADAPTER_DESIGNWARE_1 },
 		/* Touchpad. */
 		{ .add = setup_cyapa_tp, I2C_ADAPTER_DESIGNWARE_0 },
+		/* Elan Touchpad option. */
+		{ .add = setup_elantech_tp, I2C_ADAPTER_DESIGNWARE_0 },
 		/* Light Sensor. */
 		{ .add = setup_isl29018_als, I2C_ADAPTER_DESIGNWARE_1 },
 	},
@@ -492,6 +517,18 @@ static struct chromeos_laptop cr48 = {
 		/* Light Sensor. */
 		{ .add = setup_tsl2563_als, I2C_ADAPTER_SMBUS },
 	},
+};
+
+static struct chromeos_laptop bolt = {
+	.i2c_peripherals = {
+		/* Touchscreen. */
+		{ .add = setup_atmel_1664s_ts, I2C_ADAPTER_DESIGNWARE_1 },
+		/* Touchpad. */
+		{ .add = setup_atmel_224s_tp, I2C_ADAPTER_DESIGNWARE_0 },
+		/* Light Sensor. */
+		{ .add = setup_isl29018_als, I2C_ADAPTER_DESIGNWARE_1 },
+	},
+	.has_keyboard_backlight = true,
 };
 
 #define _CBDD(board_) \
@@ -581,6 +618,14 @@ static struct dmi_system_id chromeos_laptop_dmi_table[] __initdata = {
 		},
 		_CBDD(cr48),
 	},
+	{
+		.ident = "Bolt",
+		.matches = {
+			DMI_MATCH(DMI_BIOS_VENDOR, "coreboot"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Bolt"),
+		},
+		_CBDD(bolt),
+	},
 	{ }
 };
 MODULE_DEVICE_TABLE(dmi, chromeos_laptop_dmi_table);
@@ -634,6 +679,8 @@ static void __exit chromeos_laptop_exit(void)
 		i2c_unregister_device(tp);
 	if (ts)
 		i2c_unregister_device(ts);
+	if (kb_backlight_device)
+		platform_device_unregister(kb_backlight_device);
 
 	platform_device_unregister(cros_platform_device);
 	platform_driver_unregister(&cros_platform_driver);

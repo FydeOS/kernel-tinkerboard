@@ -508,7 +508,7 @@ void vc4_cancel_page_flip(struct drm_crtc *crtc, struct drm_file *file)
 	spin_lock_irqsave(&dev->event_lock, flags);
 
 	if (vc4_crtc->event && vc4_crtc->event->base.file_priv == file) {
-		vc4_crtc->event->base.destroy(&vc4_crtc->event->base);
+		kfree(&vc4_crtc->event->base);
 		drm_crtc_vblank_put(crtc);
 		vc4_crtc->event = NULL;
 	}
@@ -606,7 +606,7 @@ static int vc4_crtc_bind(struct device *dev, struct device *master, void *data)
 	}
 
 	drm_crtc_init_with_planes(drm, crtc, primary_plane, cursor_plane,
-				  &vc4_crtc_funcs);
+				  &vc4_crtc_funcs, NULL);
 	drm_crtc_helper_add(crtc, &vc4_crtc_helper_funcs);
 	primary_plane->crtc = crtc;
 	cursor_plane->crtc = crtc;

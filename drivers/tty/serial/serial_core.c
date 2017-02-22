@@ -95,6 +95,9 @@ static void __uart_start(struct tty_struct *tty)
 	struct uart_state *state = tty->driver_data;
 	struct uart_port *port = state->uart_port;
 
+	if (port->ops->wake_peer)
+		port->ops->wake_peer(port);
+
 	if (!uart_tx_stopped(port))
 		port->ops->start_tx(port);
 }
@@ -1818,8 +1821,8 @@ uart_get_console(struct uart_port *ports, int nr, struct console *co)
  *	@options: ptr for <options> field; NULL if not present (out)
  *
  *	Decodes earlycon kernel command line parameters of the form
- *	   earlycon=<name>,io|mmio|mmio32|mmio32be|mmio32native,<addr>,<options>
- *	   console=<name>,io|mmio|mmio32|mmio32be|mmio32native,<addr>,<options>
+ *	   earlycon=<name>,io|mmio|mmio16|mmio32|mmio32be|mmio32native,<addr>,<options>
+ *	   console=<name>,io|mmio|mmio16|mmio32|mmio32be|mmio32native,<addr>,<options>
  *
  *	The optional form
  *	   earlycon=<name>,0x<addr>,<options>
@@ -1834,6 +1837,9 @@ int uart_parse_earlycon(char *p, unsigned char *iotype, unsigned long *addr,
 	if (strncmp(p, "mmio,", 5) == 0) {
 		*iotype = UPIO_MEM;
 		p += 5;
+	} else if (strncmp(p, "mmio16,", 7) == 0) {
+		*iotype = UPIO_MEM16;
+		p += 7;
 	} else if (strncmp(p, "mmio32,", 7) == 0) {
 		*iotype = UPIO_MEM32;
 		p += 7;
@@ -1892,26 +1898,6 @@ uart_parse_options(char *options, int *baud, int *parity, int *bits, int *flow)
 }
 EXPORT_SYMBOL_GPL(uart_parse_options);
 
-struct baud_rates {
-	unsigned int rate;
-	unsigned int cflag;
-};
-
-static const struct baud_rates baud_rates[] = {
-	{ 921600, B921600 },
-	{ 460800, B460800 },
-	{ 230400, B230400 },
-	{ 115200, B115200 },
-	{  57600, B57600  },
-	{  38400, B38400  },
-	{  19200, B19200  },
-	{   9600, B9600   },
-	{   4800, B4800   },
-	{   2400, B2400   },
-	{   1200, B1200   },
-	{      0, B38400  }
-};
-
 /**
  *	uart_set_options - setup the serial console parameters
  *	@port: pointer to the serial ports uart_port structure
@@ -1927,7 +1913,6 @@ uart_set_options(struct uart_port *port, struct console *co,
 {
 	struct ktermios termios;
 	static struct ktermios dummy;
-	int i;
 
 	/*
 	 * Ensure that the serial console lock is initialised
@@ -1942,16 +1927,8 @@ uart_set_options(struct uart_port *port, struct console *co,
 
 	memset(&termios, 0, sizeof(struct ktermios));
 
-	termios.c_cflag = CREAD | HUPCL | CLOCAL;
-
-	/*
-	 * Construct a cflag setting.
-	 */
-	for (i = 0; baud_rates[i].rate; i++)
-		if (baud_rates[i].rate <= baud)
-			break;
-
-	termios.c_cflag |= baud_rates[i].cflag;
+	termios.c_cflag |= CREAD | HUPCL | CLOCAL;
+	tty_termios_encode_baud_rate(&termios, baud, baud);
 
 	if (bits == 7)
 		termios.c_cflag |= CS7;
@@ -2186,6 +2163,7 @@ uart_report_port(struct uart_driver *drv, struct uart_port *port)
 			 "I/O 0x%lx offset 0x%x", port->iobase, port->hub6);
 		break;
 	case UPIO_MEM:
+	case UPIO_MEM16:
 	case UPIO_MEM32:
 	case UPIO_MEM32BE:
 	case UPIO_AU:
@@ -2831,6 +2809,7 @@ int uart_match_port(struct uart_port *port1, struct uart_port *port2)
 		return (port1->iobase == port2->iobase) &&
 		       (port1->hub6   == port2->hub6);
 	case UPIO_MEM:
+	case UPIO_MEM16:
 	case UPIO_MEM32:
 	case UPIO_MEM32BE:
 	case UPIO_AU:

@@ -59,12 +59,14 @@ static int send_command(struct cros_ec_device *ec_dev,
 			struct cros_ec_command *msg)
 {
 	int ret;
+	int (*xfer_fxn)(struct cros_ec_device *ec, struct cros_ec_command *msg);
 
 	if (ec_dev->proto_version > 2)
-		ret = ec_dev->pkt_xfer(ec_dev, msg);
+		xfer_fxn = ec_dev->pkt_xfer;
 	else
-		ret = ec_dev->cmd_xfer(ec_dev, msg);
+		xfer_fxn = ec_dev->cmd_xfer;
 
+	ret = (*xfer_fxn)(ec_dev, msg);
 	if (msg->result == EC_RES_IN_PROGRESS) {
 		int i;
 		struct cros_ec_command *status_msg;
@@ -87,7 +89,7 @@ static int send_command(struct cros_ec_device *ec_dev,
 		for (i = 0; i < EC_COMMAND_RETRIES; i++) {
 			usleep_range(10000, 11000);
 
-			ret = ec_dev->cmd_xfer(ec_dev, status_msg);
+			ret = (*xfer_fxn)(ec_dev, status_msg);
 			if (ret < 0)
 				break;
 
@@ -148,6 +150,75 @@ int cros_ec_check_result(struct cros_ec_device *ec_dev,
 	}
 }
 EXPORT_SYMBOL(cros_ec_check_result);
+
+
+/*
+ * cros_ec_get_host_command_version_mask
+ *
+ * Get the version mask of a given command.
+ *
+ * @ec_dev: EC device to call
+ * @msg: message structure to use
+ * @cmd: command to get the version of.
+ * @mask: result when function returns 0.
+ *
+ * LOCKING:
+ * the caller has ec_dev->lock mutex, or the caller knows there is
+ * no other command in progress.
+ */
+static int cros_ec_get_host_command_version_mask(struct cros_ec_device *ec_dev,
+						 struct cros_ec_command *msg,
+						 uint16_t cmd, uint32_t *mask)
+{
+	struct ec_params_get_cmd_versions *pver;
+	struct ec_response_get_cmd_versions *rver;
+	int ret;
+
+	msg->command = EC_CMD_GET_CMD_VERSIONS;
+	msg->version = 0;
+	msg->outsize = sizeof(*pver);
+	msg->insize = sizeof(*rver);
+
+	pver = (struct ec_params_get_cmd_versions *)msg->data;
+	rver = (struct ec_response_get_cmd_versions *)msg->data;
+	pver->cmd = cmd;
+	ret = send_command(ec_dev, msg);
+	if (ret > 0)
+		*mask = rver->version_mask;
+	return ret;
+}
+
+/*
+ * cros_ec_get_host_event_wake_mask
+ *
+ * Get the mask of host events that cause wake from suspend.
+ *
+ * @ec_dev: EC device to call
+ * @msg: message structure to use
+ * @mask: result when function returns >=0.
+ *
+ * LOCKING:
+ * the caller has ec_dev->lock mutex, or the caller knows there is
+ * no other command in progress.
+ */
+static int cros_ec_get_host_event_wake_mask(struct cros_ec_device *ec_dev,
+					    struct cros_ec_command *msg,
+					    uint32_t *mask)
+{
+	struct ec_response_host_event_mask *r;
+	int ret;
+
+	msg->command = EC_CMD_HOST_EVENT_GET_WAKE_MASK;
+	msg->version = 0;
+	msg->outsize = 0;
+	msg->insize = sizeof(*r);
+
+	r = (struct ec_response_host_event_mask *)msg->data;
+	ret = send_command(ec_dev, msg);
+	if (ret > 0)
+		*mask = r->mask;
+	return ret;
+}
 
 static int cros_ec_host_command_proto_query(struct cros_ec_device *ec_dev,
 					    int devidx,
@@ -239,6 +310,7 @@ int cros_ec_query_all(struct cros_ec_device *ec_dev)
 	struct device *dev = ec_dev->dev;
 	struct cros_ec_command *proto_msg;
 	struct ec_response_get_protocol_info *proto_info;
+	uint32_t ver_mask = 0;
 	int ret;
 
 	proto_msg = kzalloc(sizeof(*proto_msg) + sizeof(*proto_info),
@@ -328,6 +400,26 @@ int cros_ec_query_all(struct cros_ec_device *ec_dev)
 		goto exit;
 	}
 
+	/* Probe if MKBP event is supported */
+	ret = cros_ec_get_host_command_version_mask(ec_dev, proto_msg,
+						    EC_CMD_GET_NEXT_EVENT,
+						    &ver_mask);
+	if (ret < 0 || ver_mask == 0)
+		ec_dev->mkbp_event_supported = 0;
+	else
+		ec_dev->mkbp_event_supported = 1;
+
+	/*
+	 * Get host event wake mask, assume all events are wake events
+	 * if unavailable.
+	 */
+	ret = cros_ec_get_host_event_wake_mask(ec_dev, proto_msg,
+					       &ec_dev->host_event_wake_mask);
+	if (ret < 0)
+		ec_dev->host_event_wake_mask = (u32)-1;
+
+	ret = 0;
+
 exit:
 	kfree(proto_msg);
 	return ret;
@@ -380,3 +472,20 @@ int cros_ec_cmd_xfer(struct cros_ec_device *ec_dev,
 	return ret;
 }
 EXPORT_SYMBOL(cros_ec_cmd_xfer);
+
+int cros_ec_cmd_xfer_status(struct cros_ec_device *ec_dev,
+			    struct cros_ec_command *msg)
+{
+	int ret;
+
+	ret = cros_ec_cmd_xfer(ec_dev, msg);
+	if (ret < 0) {
+		dev_err(ec_dev->dev, "Command xfer error (err:%d)\n", ret);
+	} else if (msg->result != EC_RES_SUCCESS) {
+		dev_dbg(ec_dev->dev, "Command result (err: %d)\n", msg->result);
+		return -EPROTO;
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL(cros_ec_cmd_xfer_status);

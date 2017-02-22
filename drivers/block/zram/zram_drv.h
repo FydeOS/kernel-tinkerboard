@@ -16,6 +16,7 @@
 #define _ZRAM_DRV_H_
 
 #include <linux/spinlock.h>
+#include <linux/atomic.h>
 #include <linux/zsmalloc.h>
 
 #include "zcomp.h"
@@ -85,6 +86,7 @@ struct zram_stats {
 	atomic64_t zero_pages;		/* no. of zero filled pages */
 	atomic64_t pages_stored;	/* no. of pages currently stored */
 	atomic_long_t max_used_pages;	/* no. of maximum pages stored */
+	atomic64_t writestall;		/* no. of write slow paths */
 };
 
 struct zram_meta {
@@ -102,7 +104,7 @@ struct zram {
 	 * the number of pages zram can consume for storing compressed data
 	 */
 	unsigned long limit_pages;
-	int max_comp_streams;
+	atomic_t nr_opens;	/* number of active file handles */
 
 	struct zram_stats stats;
 	atomic_t refcount; /* refcount for zram_meta */

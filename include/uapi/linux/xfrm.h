@@ -8,6 +8,18 @@
  * passed into the kernel from userspace via netlink sockets.
  */
 
+#if defined(CONFIG_ARM64)
+/* FIXME: Force the kernel structs to be compatible with arm32 user structs.
+ * This breaks compatibility with arm64 user programs.  See
+ * crosbug.com/p/57324
+ */
+#define __maybe_packed __attribute__((packed))
+#define PACK_RESERVED(x) __u8 reserved[x]
+#else
+#define __maybe_packed
+#define PACK_RESERVED(x)
+#endif
+
 /* Structure to encapsulate addresses. I do not want to use
  * "standard" structure. My apologies.
  */
@@ -377,7 +389,11 @@ struct xfrm_usersa_info {
 #define XFRM_STATE_AF_UNSPEC	32
 #define XFRM_STATE_ALIGN4	64
 #define XFRM_STATE_ESN		128
-};
+	/* This makes the struct length 64-bit aligned, which is required on
+	 * 32-bit ARM.
+	 */
+	PACK_RESERVED(7);
+} __maybe_packed;
 
 #define XFRM_SA_XFLAG_DONT_ENCAP_DSCP	1
 
@@ -399,7 +415,7 @@ struct xfrm_userspi_info {
 	struct xfrm_usersa_info		info;
 	__u32				min;
 	__u32				max;
-};
+} __maybe_packed;
 
 struct xfrm_userpolicy_info {
 	struct xfrm_selector		sel;
@@ -416,7 +432,7 @@ struct xfrm_userpolicy_info {
 	/* Automatically expand selector to include matching ICMP payloads. */
 #define XFRM_POLICY_ICMP	2
 	__u8				share;
-};
+} __maybe_packed;
 
 struct xfrm_userpolicy_id {
 	struct xfrm_selector		sel;
@@ -433,17 +449,19 @@ struct xfrm_user_acquire {
 	__u32				ealgos;
 	__u32				calgos;
 	__u32				seq;
-};
+} __maybe_packed;
 
 struct xfrm_user_expire {
 	struct xfrm_usersa_info		state;
 	__u8				hard;
-};
+	PACK_RESERVED(3);
+} __maybe_packed;
 
 struct xfrm_user_polexpire {
 	struct xfrm_userpolicy_info	pol;
 	__u8				hard;
-};
+	PACK_RESERVED(3);
+} __maybe_packed;
 
 struct xfrm_usersa_flush {
 	__u8				proto;

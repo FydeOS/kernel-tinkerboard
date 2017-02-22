@@ -42,6 +42,8 @@ static unsigned int __init serial8250_early_in(struct uart_port *port, int offse
 	switch (port->iotype) {
 	case UPIO_MEM:
 		return readb(port->membase + offset);
+	case UPIO_MEM16:
+		return readw(port->membase + (offset << 1));
 	case UPIO_MEM32:
 		return readl(port->membase + (offset << 2));
 	case UPIO_MEM32BE:
@@ -58,6 +60,9 @@ static void __init serial8250_early_out(struct uart_port *port, int offset, int 
 	switch (port->iotype) {
 	case UPIO_MEM:
 		writeb(value, port->membase + offset);
+		break;
+	case UPIO_MEM16:
+		writew(value, port->membase + (offset << 1));
 		break;
 	case UPIO_MEM32:
 		writel(value, port->membase + (offset << 2));
@@ -156,3 +161,4 @@ EARLYCON_DECLARE(uart8250, early_serial8250_setup);
 EARLYCON_DECLARE(uart, early_serial8250_setup);
 OF_EARLYCON_DECLARE(ns16550, "ns16550", early_serial8250_setup);
 OF_EARLYCON_DECLARE(ns16550a, "ns16550a", early_serial8250_setup);
+OF_EARLYCON_DECLARE(uart, "snps,dw-apb-uart", early_serial8250_setup);

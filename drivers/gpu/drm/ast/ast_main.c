@@ -223,11 +223,12 @@ static int ast_get_dram_info(struct drm_device *dev)
 	ast_write32(ast, 0x10000, 0xfc600309);
 
 	do {
-		;
+		if (pci_channel_offline(dev->pdev))
+			return -EIO;
 	} while (ast_read32(ast, 0x10000) != 0x01);
 	data = ast_read32(ast, 0x10004);
 
-	if (data & 0x400)
+	if (data & 0x40)
 		ast->dram_bus_width = 16;
 	else
 		ast->dram_bus_width = 32;
@@ -309,7 +310,7 @@ static const struct drm_framebuffer_funcs ast_fb_funcs = {
 
 int ast_framebuffer_init(struct drm_device *dev,
 			 struct ast_framebuffer *ast_fb,
-			 struct drm_mode_fb_cmd2 *mode_cmd,
+			 const struct drm_mode_fb_cmd2 *mode_cmd,
 			 struct drm_gem_object *obj)
 {
 	int ret;
@@ -327,7 +328,7 @@ int ast_framebuffer_init(struct drm_device *dev,
 static struct drm_framebuffer *
 ast_user_framebuffer_create(struct drm_device *dev,
 	       struct drm_file *filp,
-	       struct drm_mode_fb_cmd2 *mode_cmd)
+	       const struct drm_mode_fb_cmd2 *mode_cmd)
 {
 	struct drm_gem_object *obj;
 	struct ast_framebuffer *ast_fb;
@@ -429,7 +430,9 @@ int ast_driver_load(struct drm_device *dev, unsigned long flags)
 	ast_detect_chip(dev, &need_post);
 
 	if (ast->chip != AST1180) {
-		ast_get_dram_info(dev);
+		ret = ast_get_dram_info(dev);
+		if (ret)
+			goto out_free;
 		ast->vram_size = ast_get_vram_info(dev);
 		DRM_INFO("dram %d %d %d %08x\n", ast->mclk, ast->dram_type, ast->dram_bus_width, ast->vram_size);
 	}

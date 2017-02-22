@@ -52,7 +52,7 @@ udl_gem_create(struct drm_file *file,
 		return ret;
 	}
 
-	drm_gem_object_unreference(&obj->base);
+	drm_gem_object_unreference_unlocked(&obj->base);
 	*handle_p = handle;
 	return 0;
 }
@@ -140,6 +140,10 @@ int udl_gem_get_pages(struct udl_gem_object *obj)
 
 	obj->pages = pages;
 
+#if defined(CONFIG_X86)
+	drm_clflush_pages(obj->pages, obj->base.size / PAGE_SIZE);
+#endif
+
 	return 0;
 }
 
@@ -159,6 +163,9 @@ int udl_gem_vmap(struct udl_gem_object *obj)
 {
 	int page_count = obj->base.size / PAGE_SIZE;
 	int ret;
+
+	if (obj->vmapping)
+		return 0;
 
 	if (obj->base.import_attach) {
 		obj->vmapping = dma_buf_vmap(obj->base.import_attach->dmabuf);
@@ -204,7 +211,8 @@ void udl_gem_free_object(struct drm_gem_object *gem_obj)
 	if (obj->pages)
 		udl_gem_put_pages(obj);
 
-	drm_gem_free_mmap_offset(gem_obj);
+	if (gem_obj->dev->vma_offset_manager)
+		drm_gem_free_mmap_offset(gem_obj);
 }
 
 /* the dumb interface doesn't work with the GEM straight MMAP

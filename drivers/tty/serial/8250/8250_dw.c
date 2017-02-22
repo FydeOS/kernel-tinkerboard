@@ -13,6 +13,7 @@
  * LCR is written whilst busy.  If it is, then a busy detect interrupt is
  * raised, the LCR needs to be rewritten and the uart status register read.
  */
+#include <linux/console.h>
 #include <linux/device.h>
 #include <linux/io.h>
 #include <linux/module.h>
@@ -27,6 +28,7 @@
 #include <linux/clk.h>
 #include <linux/reset.h>
 #include <linux/pm_runtime.h>
+#include <linux/pci.h>
 
 #include <asm/byteorder.h>
 
@@ -189,8 +191,31 @@ static unsigned int dw8250_serial_in32(struct uart_port *p, int offset)
 
 static int dw8250_handle_irq(struct uart_port *p)
 {
+	struct uart_8250_port *up = up_to_u8250p(p);
 	struct dw8250_data *d = p->private_data;
 	unsigned int iir = p->serial_in(p, UART_IIR);
+	unsigned int status;
+	unsigned long flags;
+
+	/*
+	 * There are ways to get Designware-based UARTs into a state where
+	 * they are asserting UART_IIR_RX_TIMEOUT but there is no actual
+	 * data available.  If we see such a case then we'll do a bogus
+	 * read.  If we don't do this then the "RX TIMEOUT" interrupt will
+	 * fire forever.
+	 *
+	 * This problem has only been observed so far when not in DMA mode
+	 * so we limit the workaround only to non-DMA mode.
+	 */
+	if (!up->dma && ((iir & 0x3f) == UART_IIR_RX_TIMEOUT)) {
+		spin_lock_irqsave(&p->lock, flags);
+		status = p->serial_in(p, UART_LSR);
+
+		if (!(status & (UART_LSR_DR | UART_LSR_BI)))
+			(void) p->serial_in(p, UART_RX);
+
+		spin_unlock_irqrestore(&p->lock, flags);
+	}
 
 	if (serial8250_handle_irq(p, iir)) {
 		return 1;
@@ -440,7 +465,7 @@ static int dw8250_probe(struct platform_device *pdev)
 	}
 
 	data->pclk = devm_clk_get(&pdev->dev, "apb_pclk");
-	if (IS_ERR(data->clk) && PTR_ERR(data->clk) == -EPROBE_DEFER) {
+	if (IS_ERR(data->pclk) && PTR_ERR(data->pclk) == -EPROBE_DEFER) {
 		err = -EPROBE_DEFER;
 		goto err_clk;
 	}
@@ -530,10 +555,35 @@ static int dw8250_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM_SLEEP
+static void dw8250_configure_no_d3(struct device *dev, bool dev_flag)
+{
+	struct dw8250_data *data = dev_get_drvdata(dev);
+	struct uart_8250_port *up = serial8250_get_port(data->line);
+	struct pci_dev *p_dev;
+
+	/*
+	 *	For Platforms with LPSS PCI UARTs, the parent device should
+	 *	be prevented from going into D3 for the no_console_suspend
+	 *  	flag to work as expected.
+	 */
+	if (platform_get_resource_byname(to_platform_device(up->port.dev),
+					IORESOURCE_MEM, "lpss_dev")) {
+		p_dev = (to_pci_dev(up->port.dev->parent));
+		if (p_dev && !console_suspend_enabled && uart_console(&up->port)) {
+			if (dev_flag)
+				p_dev->dev_flags |= PCI_DEV_FLAGS_NO_D3;
+			else
+				p_dev->dev_flags &= ~PCI_DEV_FLAGS_NO_D3;
+		}
+
+	}
+}
+
 static int dw8250_suspend(struct device *dev)
 {
 	struct dw8250_data *data = dev_get_drvdata(dev);
 
+	dw8250_configure_no_d3(dev, true);
 	serial8250_suspend_port(data->line);
 
 	return 0;
@@ -544,6 +594,7 @@ static int dw8250_resume(struct device *dev)
 	struct dw8250_data *data = dev_get_drvdata(dev);
 
 	serial8250_resume_port(data->line);
+	dw8250_configure_no_d3(dev, false);
 
 	return 0;
 }

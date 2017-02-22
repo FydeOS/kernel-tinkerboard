@@ -308,7 +308,16 @@ static int nouveau_drm_probe(struct pci_dev *pdev,
 	bool boot = false;
 	int ret;
 
-	/* remove conflicting drivers (vesafb, efifb etc) */
+	/* We need to check that the chipset is supported before booting
+	 * fbdev off the hardware, as there's no way to put it back.
+	 */
+	ret = nvkm_device_pci_new(pdev, NULL, "error", true, false, 0, &device);
+	if (ret)
+		return ret;
+
+	nvkm_device_del(&device);
+
+	/* Remove conflicting drivers (vesafb, efifb etc). */
 	aper = alloc_apertures(3);
 	if (!aper)
 		return -ENOMEM;
@@ -1045,10 +1054,6 @@ nouveau_platform_device_create(const struct nvkm_device_tegra_func *func,
 		err = -ENOMEM;
 		goto err_free;
 	}
-
-	err = drm_dev_set_unique(drm, "%s", dev_name(&pdev->dev));
-	if (err < 0)
-		goto err_free;
 
 	drm->platformdev = pdev;
 	platform_set_drvdata(pdev, drm);

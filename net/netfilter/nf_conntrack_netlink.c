@@ -1422,10 +1422,6 @@ ctnetlink_change_status(struct nf_conn *ct, const struct nlattr * const cda[])
 	unsigned int status = ntohl(nla_get_be32(cda[CTA_STATUS]));
 	d = ct->status ^ status;
 
-	if (d & (IPS_EXPECTED|IPS_CONFIRMED|IPS_DYING))
-		/* unchangeable */
-		return -EBUSY;
-
 	if (d & IPS_SEEN_REPLY && !(status & IPS_SEEN_REPLY))
 		/* SEEN_REPLY bit can only be set */
 		return -EBUSY;
@@ -1436,8 +1432,11 @@ ctnetlink_change_status(struct nf_conn *ct, const struct nlattr * const cda[])
 
 	/* Be careful here, modifying NAT bits can screw up things,
 	 * so don't let users modify them directly if they don't pass
-	 * nf_nat_range. */
-	ct->status |= status & ~(IPS_NAT_DONE_MASK | IPS_NAT_MASK);
+	 * nf_nat_range.  Also, disallow changing bits that indicate
+	 * which hash table owns the connection.
+	 */
+	ct->status = (status & ~IPS_UNCHANGEABLE_MASK) |
+		     (ct->status & IPS_UNCHANGEABLE_MASK);
 	return 0;
 }
 
@@ -1474,13 +1473,22 @@ ctnetlink_change_helper(struct nf_conn *ct, const struct nlattr * const cda[])
 	struct nlattr *helpinfo = NULL;
 	int err;
 
-	/* don't change helper of sibling connections */
-	if (ct->master)
-		return -EBUSY;
-
 	err = ctnetlink_parse_help(cda[CTA_HELP], &helpname, &helpinfo);
 	if (err < 0)
 		return err;
+
+	/* don't change helper of sibling connections */
+	if (ct->master) {
+		/* If we try to change the helper to the same thing twice,
+		 * treat the second attempt as a no-op instead of returning
+		 * an error.
+		 */
+		if (help && help->helper &&
+		    !strcmp(help->helper->name, helpname))
+			return 0;
+		else
+			return -EBUSY;
+	}
 
 	if (!strcmp(helpname, "")) {
 		if (help && help->helper) {
@@ -1531,11 +1539,15 @@ ctnetlink_change_timeout(struct nf_conn *ct, const struct nlattr * const cda[])
 {
 	u_int32_t timeout = ntohl(nla_get_be32(cda[CTA_TIMEOUT]));
 
-	if (!del_timer(&ct->timeout))
-		return -ETIME;
+	if (nf_ct_is_confirmed(ct)) {
+		if (!del_timer(&ct->timeout))
+			return -ETIME;
 
-	ct->timeout.expires = jiffies + timeout * HZ;
-	add_timer(&ct->timeout);
+		ct->timeout.expires = jiffies + timeout * HZ;
+		add_timer(&ct->timeout);
+	} else if (timeout != 0) {
+		ct->timeout.expires = timeout * HZ;
+	}
 
 	return 0;
 }

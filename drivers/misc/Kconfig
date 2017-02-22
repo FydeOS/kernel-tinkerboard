@@ -439,7 +439,7 @@ config ARM_CHARLCD
 	  still useful.
 
 config BMP085
-	bool
+	tristate
 	depends on SYSFS
 
 config BMP085_I2C
@@ -524,6 +524,19 @@ config VEXPRESS_SYSCFG
 	  ARM Ltd. Versatile Express uses specialised platform configuration
 	  bus. System Configuration interface is one of the possible means
 	  of generating transactions on this bus.
+
+config UID_CPUTIME
+	bool "Per-UID cpu time statistics"
+	depends on PROFILING
+	help
+	  Per UID based cpu time statistics exported to /proc/uid_cputime
+
+config FPC1020
+	tristate "FPC1020 series fingerprint sensor driver"
+	depends on SPI
+	help
+	  Driver for FPC1020 series fingerprint sensor, providing low-level
+	  support to the sensor functionality.
 
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"

@@ -27,6 +27,7 @@
 #include <asm/cpufeature.h>
 #include <asm/errno.h>
 #include <asm/esr.h>
+#include <asm/memory.h>
 #include <asm/thread_info.h>
 #include <asm/unistd.h>
 
@@ -93,7 +94,13 @@
 	disable_step_tsk x19, x20		// exceptions when scheduling.
 	.else
 	add	x21, sp, #S_FRAME_SIZE
-	.endif
+	get_thread_info tsk
+	/* Save the task's original addr_limit and set USER_DS (TASK_SIZE_64) */
+	ldr	x20, [tsk, #TI_ADDR_LIMIT]
+	str	x20, [sp, #S_ORIG_ADDR_LIMIT]
+	mov	x20, #TASK_SIZE_64
+	str	x20, [tsk, #TI_ADDR_LIMIT]
+	.endif /* \el == 0 */
 	mrs	x22, elr_el1
 	mrs	x23, spsr_el1
 	stp	lr, x21, [sp, #S_LR]
@@ -117,6 +124,12 @@
 	.endm
 
 	.macro	kernel_exit, el
+	.if	\el != 0
+	/* Restore the task's original addr_limit. */
+	ldr	x20, [sp, #S_ORIG_ADDR_LIMIT]
+	str	x20, [tsk, #TI_ADDR_LIMIT]
+	.endif
+
 	ldp	x21, x22, [sp, #S_PC]		// load ELR, SPSR
 	.if	\el == 0
 	ct_user_enter
@@ -451,9 +464,15 @@ el0_svc_compat:
 	/*
 	 * AArch32 syscall handling
 	 */
+#ifdef CONFIG_ALT_SYSCALL
+	ldr	stbl, [tsk, #TI_COMPAT_SYS_CALL_TABLE]	// load per-thread compat syscall table pointer
+	ldr	w16, [tsk, #TI_COMPAT_NR_SYSCALLS]
+	uxtw	sc_nr, w16
+#else
 	adrp	stbl, compat_sys_call_table	// load compat syscall table pointer
-	uxtw	scno, w7			// syscall number in w7 (r7)
 	mov     sc_nr, #__NR_compat_syscalls
+#endif
+	uxtw	scno, w7			// syscall number in w7 (r7)
 	b	el0_svc_naked
 
 	.align	6
@@ -634,6 +653,9 @@ work_pending:
 	bl	do_notify_resume
 	b	ret_to_user
 work_resched:
+#ifdef CONFIG_TRACE_IRQFLAGS
+	bl	trace_hardirqs_off		// the IRQs are off here, inform the tracing code
+#endif
 	bl	schedule
 
 /*
@@ -666,9 +688,15 @@ ENDPROC(ret_from_fork)
  */
 	.align	6
 el0_svc:
+#ifdef CONFIG_ALT_SYSCALL
+	ldr	stbl, [tsk, #TI_SYS_CALL_TABLE]	// load per-thread syscall table pointer
+	ldr	w16, [tsk, #TI_NR_SYSCALLS]
+	uxtw	sc_nr, w16
+#else
 	adrp	stbl, sys_call_table		// load syscall table pointer
-	uxtw	scno, w8			// syscall number in w8
 	mov	sc_nr, #__NR_syscalls
+#endif
+	uxtw	scno, w8			// syscall number in w8
 el0_svc_naked:					// compat entry point
 	stp	x0, scno, [sp, #S_ORIG_X0]	// save the original x0 and syscall number
 	enable_dbg_and_irq

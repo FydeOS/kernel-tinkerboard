@@ -19,6 +19,7 @@
 #include <drm/drm_crtc.h>
 #include <drm/drm_crtc_helper.h>
 #include "udl_drv.h"
+#include "udl_cursor.h"
 
 #include <drm/drm_fb_helper.h>
 
@@ -33,7 +34,6 @@ module_param(fb_defio, int, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP);
 struct udl_fbdev {
 	struct drm_fb_helper helper;
 	struct udl_framebuffer ufb;
-	struct list_head fbdev_list;
 	int fb_count;
 };
 
@@ -116,8 +116,8 @@ static void udlfb_dpy_deferred_io(struct fb_info *info,
 		if (udl_render_hline(dev, (ufbdev->ufb.base.bits_per_pixel / 8),
 				     &urb, (char *) info->fix.smem_start,
 				     &cmd, cur->index << PAGE_SHIFT,
-				     cur->index << PAGE_SHIFT,
-				     PAGE_SIZE, &bytes_identical, &bytes_sent))
+				     cur->index << PAGE_SHIFT, PAGE_SIZE, NULL,
+				     &bytes_identical, &bytes_sent))
 			goto error;
 		bytes_rendered += PAGE_SIZE;
 	}
@@ -145,7 +145,7 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 {
 	struct drm_device *dev = fb->base.dev;
 	struct udl_device *udl = dev->dev_private;
-	int i, ret;
+	int i, ret = 0;
 	char *cmd;
 	cycles_t start_cycles, end_cycles;
 	int bytes_sent = 0;
@@ -156,20 +156,18 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 	int x2, y2;
 	bool store_for_later = false;
 	unsigned long flags;
+	struct udl_cursor *cursor_copy = NULL;
+
+	mutex_lock(&udl->transfer_lock);
 
 	if (!fb->active_16)
-		return 0;
+		goto out;
 
-	if (!fb->obj->vmapping) {
-		ret = udl_gem_vmap(fb->obj);
-		if (ret == -ENOMEM) {
-			DRM_ERROR("failed to vmap fb\n");
-			return 0;
-		}
-		if (!fb->obj->vmapping) {
-			DRM_ERROR("failed to vmapping\n");
-			return 0;
-		}
+	ret = udl_gem_vmap(fb->obj);
+	if (ret) {
+		DRM_ERROR("failed to vmap fb\n");
+		ret = 0;
+		goto out;
 	}
 
 	aligned_x = DL_ALIGN_DOWN(x, sizeof(unsigned long));
@@ -178,8 +176,10 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 
 	if ((width <= 0) ||
 	    (x + width > fb->base.width) ||
-	    (y + height > fb->base.height))
-		return -EINVAL;
+	    (y + height > fb->base.height)) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	/* if we are in atomic just store the info
 	   can't test inside spin lock */
@@ -206,7 +206,7 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 		fb->y1 = y;
 		fb->y2 = y2;
 		spin_unlock_irqrestore(&fb->dirty_lock, flags);
-		return 0;
+		goto out;
 	}
 
 	fb->x1 = fb->y1 = INT_MAX;
@@ -217,17 +217,24 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 
 	urb = udl_get_urb(dev);
 	if (!urb)
-		return 0;
+		goto out;
 	cmd = urb->transfer_buffer;
+
+	mutex_lock(&dev->struct_mutex);
+	if (udl_cursor_alloc(&cursor_copy) == 0)
+		udl_cursor_copy(cursor_copy, udl->cursor);
+	mutex_unlock(&dev->struct_mutex);
 
 	for (i = y; i <= y2 ; i++) {
 		const int line_offset = fb->base.pitches[0] * i;
 		const int byte_offset = line_offset + (x * bpp);
 		const int dev_byte_offset = (fb->base.width * bpp * i) + (x * bpp);
+		struct udl_cursor_hline cursor_hline;
+		udl_cursor_get_hline(cursor_copy, x, i, &cursor_hline);
 		if (udl_render_hline(dev, bpp, &urb,
 				     (char *) fb->obj->vmapping,
 				     &cmd, byte_offset, dev_byte_offset,
-				     (x2 - x + 1) * bpp,
+				     (x2 - x + 1) * bpp, &cursor_hline,
 				     &bytes_identical, &bytes_sent))
 			goto error;
 	}
@@ -235,12 +242,14 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 	if (cmd > (char *) urb->transfer_buffer) {
 		/* Send partial buffer remaining before exiting */
 		int len = cmd - (char *) urb->transfer_buffer;
-		ret = udl_submit_urb(dev, urb, len);
+		udl_submit_urb(dev, urb, len);
 		bytes_sent += len;
 	} else
 		udl_urb_completion(urb);
 
 error:
+	if (cursor_copy)
+		udl_cursor_free(cursor_copy);
 	atomic_add(bytes_sent, &udl->bytes_sent);
 	atomic_add(bytes_identical, &udl->bytes_identical);
 	atomic_add(width*height*bpp, &udl->bytes_rendered);
@@ -249,7 +258,9 @@ error:
 		    >> 10)), /* Kcycles */
 		   &udl->cpu_kcycles_used);
 
-	return 0;
+out:
+	mutex_unlock(&udl->transfer_lock);
+	return ret;
 }
 
 static int udl_fb_mmap(struct fb_info *info, struct vm_area_struct *vma)
@@ -322,12 +333,6 @@ static void udl_fb_imageblit(struct fb_info *info, const struct fb_image *image)
 static int udl_fb_open(struct fb_info *info, int user)
 {
 	struct udl_fbdev *ufbdev = info->par;
-	struct drm_device *dev = ufbdev->ufb.base.dev;
-	struct udl_device *udl = dev->dev_private;
-
-	/* If the USB device is gone, we don't accept new opens */
-	if (drm_device_is_unplugged(udl->ddev))
-		return -ENODEV;
 
 	ufbdev->fb_count++;
 
@@ -410,7 +415,6 @@ static int udl_user_framebuffer_dirty(struct drm_framebuffer *fb,
 
 	if (ufb->obj->base.import_attach) {
 		ret = dma_buf_begin_cpu_access(ufb->obj->base.import_attach->dmabuf,
-					       0, ufb->obj->base.size,
 					       DMA_FROM_DEVICE);
 		if (ret)
 			goto unlock;
@@ -425,9 +429,8 @@ static int udl_user_framebuffer_dirty(struct drm_framebuffer *fb,
 	}
 
 	if (ufb->obj->base.import_attach) {
-		dma_buf_end_cpu_access(ufb->obj->base.import_attach->dmabuf,
-				       0, ufb->obj->base.size,
-				       DMA_FROM_DEVICE);
+		ret = dma_buf_end_cpu_access(ufb->obj->base.import_attach->dmabuf,
+					     DMA_FROM_DEVICE);
 	}
 
  unlock:
@@ -456,7 +459,7 @@ static const struct drm_framebuffer_funcs udlfb_funcs = {
 static int
 udl_framebuffer_init(struct drm_device *dev,
 		     struct udl_framebuffer *ufb,
-		     struct drm_mode_fb_cmd2 *mode_cmd,
+		     const struct drm_mode_fb_cmd2 *mode_cmd,
 		     struct udl_gem_object *obj)
 {
 	int ret;
@@ -539,7 +542,7 @@ static int udlfb_create(struct drm_fb_helper *helper,
 out_destroy_fbi:
 	drm_fb_helper_release_fbi(helper);
 out_gfree:
-	drm_gem_object_unreference(&ufbdev->ufb.obj->base);
+	drm_gem_object_unreference_unlocked(&ufbdev->ufb.obj->base);
 out:
 	return ret;
 }
@@ -624,7 +627,7 @@ void udl_fbdev_unplug(struct drm_device *dev)
 struct drm_framebuffer *
 udl_fb_user_fb_create(struct drm_device *dev,
 		   struct drm_file *file,
-		   struct drm_mode_fb_cmd2 *mode_cmd)
+		   const struct drm_mode_fb_cmd2 *mode_cmd)
 {
 	struct drm_gem_object *obj;
 	struct udl_framebuffer *ufb;

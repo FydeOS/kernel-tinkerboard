@@ -544,6 +544,7 @@ EXPORT_SYMBOL(drm_gtf_mode_complex);
  *
  * This function is to create the modeline based on the GTF algorithm.
  * Generalized Timing Formula is derived from:
+ *
  *	GTF Spreadsheet by Andy Morrish (1/5/97)
  *	available at http://www.vesa.org
  *
@@ -553,10 +554,10 @@ EXPORT_SYMBOL(drm_gtf_mode_complex);
  * drivers/video/fbmon.c
  *
  * Standard GTF parameters:
- * M = 600
- * C = 40
- * K = 128
- * J = 20
+ *     M = 600
+ *     C = 40
+ *     K = 128
+ *     J = 20
  *
  * Returns:
  * The modeline based on the GTF algorithm stored in a drm_display_mode object.
@@ -708,7 +709,8 @@ void drm_mode_set_name(struct drm_display_mode *mode)
 }
 EXPORT_SYMBOL(drm_mode_set_name);
 
-/** drm_mode_hsync - get the hsync of a mode
+/**
+ * drm_mode_hsync - get the hsync of a mode
  * @mode: mode
  *
  * Returns:
@@ -917,13 +919,30 @@ bool drm_mode_equal(const struct drm_display_mode *mode1, const struct drm_displ
 	} else if (mode1->clock != mode2->clock)
 		return false;
 
+	return drm_mode_equal_no_clocks(mode1, mode2);
+}
+EXPORT_SYMBOL(drm_mode_equal);
+
+/**
+ * drm_mode_equal_no_clocks - test modes for equality
+ * @mode1: first mode
+ * @mode2: second mode
+ *
+ * Check to see if @mode1 and @mode2 are equivalent, but
+ * don't check the pixel clocks.
+ *
+ * Returns:
+ * True if the modes are equal, false otherwise.
+ */
+bool drm_mode_equal_no_clocks(const struct drm_display_mode *mode1, const struct drm_display_mode *mode2)
+{
 	if ((mode1->flags & DRM_MODE_FLAG_3D_MASK) !=
 	    (mode2->flags & DRM_MODE_FLAG_3D_MASK))
 		return false;
 
 	return drm_mode_equal_no_clocks_no_stereo(mode1, mode2);
 }
-EXPORT_SYMBOL(drm_mode_equal);
+EXPORT_SYMBOL(drm_mode_equal_no_clocks);
 
 /**
  * drm_mode_equal_no_clocks_no_stereo - test modes for equality
@@ -1212,7 +1231,7 @@ EXPORT_SYMBOL(drm_mode_connector_list_update);
  * This uses the same parameters as the fb modedb.c, except for an extra
  * force-enable, force-enable-digital and force-disable bit at the end:
  *
- *	<xres>x<yres>[M][R][-<bpp>][@<refresh>][i][m][eDd]
+ * <xres>x<yres>[M][R][-<bpp>][@<refresh>][i][m][eDd]
  *
  * The intermediate drm_cmdline_mode structure is required to store additional
  * options from the command line modline like the force-enable/disable flag.
@@ -1486,6 +1505,8 @@ int drm_mode_convert_umode(struct drm_display_mode *out,
 	out->status = drm_mode_validate_basic(out);
 	if (out->status != MODE_OK)
 		goto out;
+
+	drm_mode_set_crtcinfo(out, CRTC_INTERLACE_HALVE_V);
 
 	ret = 0;
 

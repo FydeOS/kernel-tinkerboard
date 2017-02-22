@@ -838,7 +838,7 @@ void vmw_event_fence_fpriv_gone(struct vmw_fence_manager *fman,
 		event = eaction->event;
 		eaction->event = NULL;
 		spin_unlock_irqrestore(&fman->lock, irq_flags);
-		event->destroy(event);
+		kfree(event);
 	}
 out_unlock:
 	spin_unlock_irqrestore(&fman->lock, irq_flags);
@@ -880,9 +880,8 @@ static void vmw_event_fence_action_seq_passed(struct vmw_fence_action *action)
 	}
 
 	list_del_init(&eaction->fpriv_head);
-	list_add_tail(&eaction->event->link, &file_priv->event_list);
 	eaction->event = NULL;
-	wake_up_all(&file_priv->event_wait);
+	drm_send_event_locked(dev, eaction->event);
 	spin_unlock_irqrestore(&dev->event_lock, irq_flags);
 }
 
@@ -1055,8 +1054,6 @@ static int vmw_event_fence_action_create(struct drm_file *file_priv,
 
 	event->base.event = &event->event.base;
 	event->base.file_priv = file_priv;
-	event->base.destroy = (void (*) (struct drm_pending_event *)) kfree;
-
 
 	if (flags & DRM_VMW_FE_FLAG_REQ_TIME)
 		ret = vmw_event_fence_action_queue(file_priv, fence,
@@ -1076,7 +1073,7 @@ static int vmw_event_fence_action_create(struct drm_file *file_priv,
 	return 0;
 
 out_no_queue:
-	event->base.destroy(&event->base);
+	kfree(&event->base);
 out_no_event:
 	spin_lock_irqsave(&dev->event_lock, irq_flags);
 	file_priv->event_space += sizeof(*event);

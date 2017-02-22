@@ -62,6 +62,11 @@
  * converting to the plane helpers). New drivers must not use these functions
  * but need to implement the atomic interface instead, potentially using the
  * atomic helpers for that.
+ *
+ * These legacy modeset helpers use the same function table structures as
+ * all other modesetting helpers. See the documentation for struct
+ * &drm_crtc_helper_funcs, struct &drm_encoder_helper_funcs and struct
+ * &drm_connector_helper_funcs.
  */
 MODULE_AUTHOR("David Airlie, Jesse Barnes");
 MODULE_DESCRIPTION("DRM KMS helper");
@@ -325,11 +330,14 @@ bool drm_crtc_helper_set_mode(struct drm_crtc *crtc,
 		}
 	}
 
-	if (!(ret = crtc_funcs->mode_fixup(crtc, mode, adjusted_mode))) {
-		DRM_DEBUG_KMS("CRTC fixup failed\n");
-		goto done;
+	if (crtc_funcs->mode_fixup) {
+		if (!(ret = crtc_funcs->mode_fixup(crtc, mode,
+						adjusted_mode))) {
+			DRM_DEBUG_KMS("CRTC fixup failed\n");
+			goto done;
+		}
 	}
-	DRM_DEBUG_KMS("[CRTC:%d]\n", crtc->base.id);
+	DRM_DEBUG_KMS("[CRTC:%d:%s]\n", crtc->base.id, crtc->name);
 
 	crtc->hwmode = *adjusted_mode;
 
@@ -484,11 +492,13 @@ int drm_crtc_helper_set_config(struct drm_mode_set *set)
 		set->fb = NULL;
 
 	if (set->fb) {
-		DRM_DEBUG_KMS("[CRTC:%d] [FB:%d] #connectors=%d (x y) (%i %i)\n",
-				set->crtc->base.id, set->fb->base.id,
-				(int)set->num_connectors, set->x, set->y);
+		DRM_DEBUG_KMS("[CRTC:%d:%s] [FB:%d] #connectors=%d (x y) (%i %i)\n",
+			      set->crtc->base.id, set->crtc->name,
+			      set->fb->base.id,
+			      (int)set->num_connectors, set->x, set->y);
 	} else {
-		DRM_DEBUG_KMS("[CRTC:%d] [NOFB]\n", set->crtc->base.id);
+		DRM_DEBUG_KMS("[CRTC:%d:%s] [NOFB]\n",
+			      set->crtc->base.id, set->crtc->name);
 		drm_crtc_helper_disable(set->crtc);
 		return 0;
 	}
@@ -628,12 +638,12 @@ int drm_crtc_helper_set_config(struct drm_mode_set *set)
 			connector->encoder->crtc = new_crtc;
 		}
 		if (new_crtc) {
-			DRM_DEBUG_KMS("[CONNECTOR:%d:%s] to [CRTC:%d]\n",
-				connector->base.id, connector->name,
-				new_crtc->base.id);
+			DRM_DEBUG_KMS("[CONNECTOR:%d:%s] to [CRTC:%d:%s]\n",
+				      connector->base.id, connector->name,
+				      new_crtc->base.id, new_crtc->name);
 		} else {
 			DRM_DEBUG_KMS("[CONNECTOR:%d:%s] to [NOCRTC]\n",
-				connector->base.id, connector->name);
+				      connector->base.id, connector->name);
 		}
 	}
 
@@ -650,8 +660,8 @@ int drm_crtc_helper_set_config(struct drm_mode_set *set)
 			if (!drm_crtc_helper_set_mode(set->crtc, set->mode,
 						      set->x, set->y,
 						      save_set.fb)) {
-				DRM_ERROR("failed to set mode on [CRTC:%d]\n",
-					  set->crtc->base.id);
+				DRM_ERROR("failed to set mode on [CRTC:%d:%s]\n",
+					  set->crtc->base.id, set->crtc->name);
 				set->crtc->primary->fb = save_set.fb;
 				ret = -EINVAL;
 				goto fail;
@@ -818,7 +828,7 @@ EXPORT_SYMBOL(drm_helper_connector_dpms);
  * metadata fields.
  */
 void drm_helper_mode_fill_fb_struct(struct drm_framebuffer *fb,
-				    struct drm_mode_fb_cmd2 *mode_cmd)
+				    const struct drm_mode_fb_cmd2 *mode_cmd)
 {
 	int i;
 
@@ -855,6 +865,12 @@ EXPORT_SYMBOL(drm_helper_mode_fill_fb_struct);
  * due to slight differences in allocating shared resources when the
  * configuration is restored in a different order than when userspace set it up)
  * need to use their own restore logic.
+ *
+ * This function is deprecated. New drivers should implement atomic mode-
+ * setting and use the atomic suspend/resume helpers.
+ *
+ * See also:
+ * drm_atomic_helper_suspend(), drm_atomic_helper_resume()
  */
 void drm_helper_resume_force_mode(struct drm_device *dev)
 {

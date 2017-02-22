@@ -2076,198 +2076,6 @@ void intel_crt_init(struct drm_device *dev)
             <function>drm_add_edid_modes</function> manually in that case.
           </para>
           <para>
-            When adding modes manually the driver creates each mode with a call to
-            <function>drm_mode_create</function> and must fill the following fields.
-            <itemizedlist>
-              <listitem>
-                <synopsis>__u32 type;</synopsis>
-                <para>
-                  Mode type bitmask, a combination of
-                  <variablelist>
-                    <varlistentry>
-                      <term>DRM_MODE_TYPE_BUILTIN</term>
-                      <listitem><para>not used?</para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_TYPE_CLOCK_C</term>
-                      <listitem><para>not used?</para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_TYPE_CRTC_C</term>
-                      <listitem><para>not used?</para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>
-        DRM_MODE_TYPE_PREFERRED - The preferred mode for the connector
-                      </term>
-                      <listitem>
-                        <para>not used?</para>
-                      </listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_TYPE_DEFAULT</term>
-                      <listitem><para>not used?</para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_TYPE_USERDEF</term>
-                      <listitem><para>not used?</para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_TYPE_DRIVER</term>
-                      <listitem>
-                        <para>
-                          The mode has been created by the driver (as opposed to
-                          to user-created modes).
-                        </para>
-                      </listitem>
-                    </varlistentry>
-                  </variablelist>
-                  Drivers must set the DRM_MODE_TYPE_DRIVER bit for all modes they
-                  create, and set the DRM_MODE_TYPE_PREFERRED bit for the preferred
-                  mode.
-                </para>
-              </listitem>
-              <listitem>
-                <synopsis>__u32 clock;</synopsis>
-                <para>Pixel clock frequency in kHz unit</para>
-              </listitem>
-              <listitem>
-                <synopsis>__u16 hdisplay, hsync_start, hsync_end, htotal;
-    __u16 vdisplay, vsync_start, vsync_end, vtotal;</synopsis>
-                <para>Horizontal and vertical timing information</para>
-                <screen><![CDATA[
-             Active                 Front           Sync           Back
-             Region                 Porch                          Porch
-    <-----------------------><----------------><-------------><-------------->
-
-      //////////////////////|
-     ////////////////////// |
-    //////////////////////  |..................               ................
-                                               _______________
-
-    <----- [hv]display ----->
-    <------------- [hv]sync_start ------------>
-    <--------------------- [hv]sync_end --------------------->
-    <-------------------------------- [hv]total ----------------------------->
-]]></screen>
-              </listitem>
-              <listitem>
-                <synopsis>__u16 hskew;
-    __u16 vscan;</synopsis>
-                <para>Unknown</para>
-              </listitem>
-              <listitem>
-                <synopsis>__u32 flags;</synopsis>
-                <para>
-                  Mode flags, a combination of
-                  <variablelist>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_PHSYNC</term>
-                      <listitem><para>
-                        Horizontal sync is active high
-                      </para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_NHSYNC</term>
-                      <listitem><para>
-                        Horizontal sync is active low
-                      </para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_PVSYNC</term>
-                      <listitem><para>
-                        Vertical sync is active high
-                      </para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_NVSYNC</term>
-                      <listitem><para>
-                        Vertical sync is active low
-                      </para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_INTERLACE</term>
-                      <listitem><para>
-                        Mode is interlaced
-                      </para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_DBLSCAN</term>
-                      <listitem><para>
-                        Mode uses doublescan
-                      </para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_CSYNC</term>
-                      <listitem><para>
-                        Mode uses composite sync
-                      </para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_PCSYNC</term>
-                      <listitem><para>
-                        Composite sync is active high
-                      </para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_NCSYNC</term>
-                      <listitem><para>
-                        Composite sync is active low
-                      </para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_HSKEW</term>
-                      <listitem><para>
-                        hskew provided (not used?)
-                      </para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_BCAST</term>
-                      <listitem><para>
-                        not used?
-                      </para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_PIXMUX</term>
-                      <listitem><para>
-                        not used?
-                      </para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_DBLCLK</term>
-                      <listitem><para>
-                        not used?
-                      </para></listitem>
-                    </varlistentry>
-                    <varlistentry>
-                      <term>DRM_MODE_FLAG_CLKDIV2</term>
-                      <listitem><para>
-                        ?
-                      </para></listitem>
-                    </varlistentry>
-                  </variablelist>
-                </para>
-                <para>
-                  Note that modes marked with the INTERLACE or DBLSCAN flags will be
-                  filtered out by
-                  <function>drm_helper_probe_single_connector_modes</function> if
-                  the connector's <structfield>interlace_allowed</structfield> or
-                  <structfield>doublescan_allowed</structfield> field is set to 0.
-                </para>
-              </listitem>
-              <listitem>
-                <synopsis>char name[DRM_DISPLAY_MODE_LEN];</synopsis>
-                <para>
-                  Mode name. The driver must call
-                  <function>drm_mode_set_name</function> to fill the mode name from
-                  <structfield>hdisplay</structfield>,
-                  <structfield>vdisplay</structfield> and interlace flag after
-                  filling the corresponding fields.
-                </para>
-              </listitem>
-            </itemizedlist>
-          </para>
-          <para>
             The <structfield>vrefresh</structfield> value is computed by
             <function>drm_helper_probe_single_connector_modes</function>.
           </para>
@@ -2327,8 +2135,12 @@ void intel_crt_init(struct drm_device *dev)
 !Edrivers/gpu/drm/drm_atomic_helper.c
     </sect2>
     <sect2>
+      <title>Modeset Helper Reference for Common Vtables</title>
+!Iinclude/drm/drm_modeset_helper_vtables.h
+!Pinclude/drm/drm_modeset_helper_vtables.h overview
+    </sect2>
+    <sect2>
       <title>Modeset Helper Functions Reference</title>
-!Iinclude/drm/drm_crtc_helper.h
 !Edrivers/gpu/drm/drm_crtc_helper.c
 !Pdrivers/gpu/drm/drm_crtc_helper.c overview
     </sect2>
@@ -2543,7 +2355,7 @@ void intel_crt_init(struct drm_device *dev)
 	<td valign="top" >Description/Restrictions</td>
 	</tr>
 	<tr>
-	<td rowspan="37" valign="top" >DRM</td>
+	<td rowspan="42" valign="top" >DRM</td>
 	<td valign="top" >Generic</td>
 	<td valign="top" >“rotation”</td>
 	<td valign="top" >BITMASK</td>
@@ -2795,7 +2607,7 @@ void intel_crt_init(struct drm_device *dev)
 	<td valign="top" >property to suggest an Y offset for a connector</td>
 	</tr>
 	<tr>
-	<td rowspan="3" valign="top" >Optional</td>
+	<td rowspan="8" valign="top" >Optional</td>
 	<td valign="top" >“scaling mode”</td>
 	<td valign="top" >ENUM</td>
 	<td valign="top" >{ "None", "Full", "Center", "Full aspect" }</td>
@@ -2819,13 +2631,72 @@ void intel_crt_init(struct drm_device *dev)
 	<td valign="top" >TBD</td>
 	</tr>
 	<tr>
+	<td valign="top" >“DEGAMMA_LUT”</td>
+	<td valign="top" >BLOB</td>
+	<td valign="top" >0</td>
+	<td valign="top" >CRTC</td>
+	<td valign="top" >DRM property to set the degamma lookup table
+		(LUT) mapping pixel data from the framebuffer before it is
+		given to the transformation matrix. The data is an interpreted
+		as an array of struct drm_color_lut elements. Hardware might
+		choose not to use the full precision of the LUT elements nor
+		use all the elements of the LUT (for example the hardware
+		might choose to interpolate between LUT[0] and LUT[4]). </td>
+	</tr>
+	<tr>
+	<td valign="top" >“DEGAMMA_LUT_SIZE”</td>
+	<td valign="top" >RANGE | IMMUTABLE</td>
+	<td valign="top" >Min=0, Max=UINT_MAX</td>
+	<td valign="top" >CRTC</td>
+	<td valign="top" >DRM property to gives the size of the lookup
+		table to be set on the DEGAMMA_LUT property (the size depends
+		on the underlying hardware).</td>
+	</tr>
+	<tr>
+	<td valign="top" >“CTM”</td>
+	<td valign="top" >BLOB</td>
+	<td valign="top" >0</td>
+	<td valign="top" >CRTC</td>
+	<td valign="top" >DRM property to set the current
+		transformation matrix (CTM) apply to pixel data after the
+		lookup through the degamma LUT and before the lookup through
+		the gamma LUT. The data is an interpreted as a struct
+		drm_color_ctm.</td>
+	</tr>
+	<tr>
+	<td valign="top" >“GAMMA_LUT”</td>
+	<td valign="top" >BLOB</td>
+	<td valign="top" >0</td>
+	<td valign="top" >CRTC</td>
+	<td valign="top" >DRM property to set the gamma lookup table
+		(LUT) mapping pixel data after to the transformation matrix to
+		data sent to the connector. The data is an interpreted as an
+		array of struct drm_color_lut elements. Hardware might choose
+		not to use the full precision of the LUT elements nor use all
+		the elements of the LUT (for example the hardware might choose
+		to interpolate between LUT[0] and LUT[4]).</td>
+	</tr>
+	<tr>
+	<td valign="top" >“GAMMA_LUT_SIZE”</td>
+	<td valign="top" >RANGE | IMMUTABLE</td>
+	<td valign="top" >Min=0, Max=UINT_MAX</td>
+	<td valign="top" >CRTC</td>
+	<td valign="top" >DRM property to gives the size of the lookup
+		table to be set on the GAMMA_LUT property (the size depends on
+		the underlying hardware).</td>
+	</tr>
+	<tr>
 	<td rowspan="20" valign="top" >i915</td>
 	<td rowspan="2" valign="top" >Generic</td>
 	<td valign="top" >"Broadcast RGB"</td>
 	<td valign="top" >ENUM</td>
 	<td valign="top" >{ "Automatic", "Full", "Limited 16:235" }</td>
 	<td valign="top" >Connector</td>
-	<td valign="top" >TBD</td>
+	<td valign="top" >When this property is set to Limited 16:235
+		and CTM is set, the hardware will be programmed with the
+		result of the multiplication of CTM by the limited range
+		matrix to ensure the pixels normaly in the range 0..1.0 are
+		remapped to the range 16/255..235/255.</td>
 	</tr>
 	<tr>
 	<td valign="top" >“audio”</td>
@@ -3613,52 +3484,8 @@ void (*postclose) (struct drm_device *, struct drm_file *);</synopsis>
     </sect2>
     <sect2>
       <title>File Operations</title>
-      <synopsis>const struct file_operations *fops</synopsis>
-      <abstract>File operations for the DRM device node.</abstract>
-      <para>
-        Drivers must define the file operations structure that forms the DRM
-	userspace API entry point, even though most of those operations are
-	implemented in the DRM core. The <methodname>open</methodname>,
-	<methodname>release</methodname> and <methodname>ioctl</methodname>
-	operations are handled by
-	<programlisting>
-	.owner = THIS_MODULE,
-	.open = drm_open,
-	.release = drm_release,
-	.unlocked_ioctl = drm_ioctl,
-  #ifdef CONFIG_COMPAT
-	.compat_ioctl = drm_compat_ioctl,
-  #endif
-        </programlisting>
-      </para>
-      <para>
-        Drivers that implement private ioctls that requires 32/64bit
-	compatibility support must provide their own
-	<methodname>compat_ioctl</methodname> handler that processes private
-	ioctls and calls <function>drm_compat_ioctl</function> for core ioctls.
-      </para>
-      <para>
-        The <methodname>read</methodname> and <methodname>poll</methodname>
-	operations provide support for reading DRM events and polling them. They
-	are implemented by
-	<programlisting>
-	.poll = drm_poll,
-	.read = drm_read,
-	.llseek = no_llseek,
-	</programlisting>
-      </para>
-      <para>
-        The memory mapping implementation varies depending on how the driver
-	manages memory. Pre-GEM drivers will use <function>drm_mmap</function>,
-	while GEM-aware drivers will use <function>drm_gem_mmap</function>. See
-	<xref linkend="drm-gem"/>.
-	<programlisting>
-	.mmap = drm_gem_mmap,
-	</programlisting>
-      </para>
-      <para>
-        No other file operation is supported by the DRM API.
-      </para>
+!Pdrivers/gpu/drm/drm_fops.c file operations
+!Edrivers/gpu/drm/drm_fops.c
     </sect2>
     <sect2>
       <title>IOCTLs</title>
@@ -4039,98 +3866,18 @@ int num_ioctls;</synopsis>
       <sect2>
         <title>DPIO</title>
 !Pdrivers/gpu/drm/i915/i915_reg.h DPIO
-	<table id="dpiox2">
-	  <title>Dual channel PHY (VLV/CHV/BXT)</title>
-	  <tgroup cols="8">
-	    <colspec colname="c0" />
-	    <colspec colname="c1" />
-	    <colspec colname="c2" />
-	    <colspec colname="c3" />
-	    <colspec colname="c4" />
-	    <colspec colname="c5" />
-	    <colspec colname="c6" />
-	    <colspec colname="c7" />
-	    <spanspec spanname="ch0" namest="c0" nameend="c3" />
-	    <spanspec spanname="ch1" namest="c4" nameend="c7" />
-	    <spanspec spanname="ch0pcs01" namest="c0" nameend="c1" />
-	    <spanspec spanname="ch0pcs23" namest="c2" nameend="c3" />
-	    <spanspec spanname="ch1pcs01" namest="c4" nameend="c5" />
-	    <spanspec spanname="ch1pcs23" namest="c6" nameend="c7" />
-	    <thead>
-	      <row>
-		<entry spanname="ch0">CH0</entry>
-		<entry spanname="ch1">CH1</entry>
-	      </row>
-	    </thead>
-	    <tbody valign="top" align="center">
-	      <row>
-		<entry spanname="ch0">CMN/PLL/REF</entry>
-		<entry spanname="ch1">CMN/PLL/REF</entry>
-	      </row>
-	      <row>
-		<entry spanname="ch0pcs01">PCS01</entry>
-		<entry spanname="ch0pcs23">PCS23</entry>
-		<entry spanname="ch1pcs01">PCS01</entry>
-		<entry spanname="ch1pcs23">PCS23</entry>
-	      </row>
-	      <row>
-		<entry>TX0</entry>
-		<entry>TX1</entry>
-		<entry>TX2</entry>
-		<entry>TX3</entry>
-		<entry>TX0</entry>
-		<entry>TX1</entry>
-		<entry>TX2</entry>
-		<entry>TX3</entry>
-	      </row>
-	      <row>
-		<entry spanname="ch0">DDI0</entry>
-		<entry spanname="ch1">DDI1</entry>
-	      </row>
-	    </tbody>
-	  </tgroup>
-	</table>
-	<table id="dpiox1">
-	  <title>Single channel PHY (CHV/BXT)</title>
-	  <tgroup cols="4">
-	    <colspec colname="c0" />
-	    <colspec colname="c1" />
-	    <colspec colname="c2" />
-	    <colspec colname="c3" />
-	    <spanspec spanname="ch0" namest="c0" nameend="c3" />
-	    <spanspec spanname="ch0pcs01" namest="c0" nameend="c1" />
-	    <spanspec spanname="ch0pcs23" namest="c2" nameend="c3" />
-	    <thead>
-	      <row>
-		<entry spanname="ch0">CH0</entry>
-	      </row>
-	    </thead>
-	    <tbody valign="top" align="center">
-	      <row>
-		<entry spanname="ch0">CMN/PLL/REF</entry>
-	      </row>
-	      <row>
-		<entry spanname="ch0pcs01">PCS01</entry>
-		<entry spanname="ch0pcs23">PCS23</entry>
-	      </row>
-	      <row>
-		<entry>TX0</entry>
-		<entry>TX1</entry>
-		<entry>TX2</entry>
-		<entry>TX3</entry>
-	      </row>
-	      <row>
-		<entry spanname="ch0">DDI2</entry>
-	      </row>
-	    </tbody>
-	  </tgroup>
-	</table>
       </sect2>
 
       <sect2>
        <title>CSR firmware support for DMC</title>
 !Pdrivers/gpu/drm/i915/intel_csr.c csr support for dmc
 !Idrivers/gpu/drm/i915/intel_csr.c
+      </sect2>
+      <sect2>
+	<title>Video BIOS Table (VBT)</title>
+!Pdrivers/gpu/drm/i915/intel_bios.c Video BIOS Table (VBT)
+!Idrivers/gpu/drm/i915/intel_bios.c
+!Idrivers/gpu/drm/i915/intel_vbt_defs.h
       </sect2>
     </sect1>
 
@@ -4201,16 +3948,20 @@ int num_ioctls;</synopsis>
       </sect2>
     </sect1>
     <sect1>
-      <title>GuC-based Command Submission</title>
+      <title>GuC</title>
       <sect2>
-        <title>GuC</title>
+        <title>GuC-specific firmware loader</title>
 !Pdrivers/gpu/drm/i915/intel_guc_loader.c GuC-specific firmware loader
 !Idrivers/gpu/drm/i915/intel_guc_loader.c
       </sect2>
       <sect2>
-        <title>GuC Client</title>
-!Pdrivers/gpu/drm/i915/i915_guc_submission.c GuC-based command submissison
+        <title>GuC-based command submission</title>
+!Pdrivers/gpu/drm/i915/i915_guc_submission.c GuC-based command submission
 !Idrivers/gpu/drm/i915/i915_guc_submission.c
+      </sect2>
+      <sect2>
+        <title>GuC Firmware Layout</title>
+!Pdrivers/gpu/drm/i915/intel_guc_fwif.h GuC Firmware Layout
       </sect2>
     </sect1>
 

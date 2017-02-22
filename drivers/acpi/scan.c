@@ -39,7 +39,7 @@ static const char *dummy_hid = "device";
 
 static LIST_HEAD(acpi_dep_list);
 static DEFINE_MUTEX(acpi_dep_list_lock);
-static LIST_HEAD(acpi_bus_id_list);
+LIST_HEAD(acpi_bus_id_list);
 static DEFINE_MUTEX(acpi_scan_lock);
 static LIST_HEAD(acpi_scan_handlers_list);
 DEFINE_MUTEX(acpi_device_lock);
@@ -50,12 +50,6 @@ struct acpi_dep_data {
 	struct list_head node;
 	acpi_handle master;
 	acpi_handle slave;
-};
-
-struct acpi_device_bus_id{
-	char bus_id[15];
-	unsigned int instance_no;
-	struct list_head node;
 };
 
 void acpi_scan_lock_acquire(void)
@@ -1958,7 +1952,7 @@ int __init acpi_scan_init(void)
 
 static struct acpi_probe_entry *ape;
 static int acpi_probe_count;
-static DEFINE_SPINLOCK(acpi_probe_lock);
+static DEFINE_MUTEX(acpi_probe_mutex);
 
 static int __init acpi_match_madt(struct acpi_subtable_header *header,
 				  const unsigned long end)
@@ -1977,7 +1971,7 @@ int __init __acpi_probe_device_table(struct acpi_probe_entry *ap_head, int nr)
 	if (acpi_disabled)
 		return 0;
 
-	spin_lock(&acpi_probe_lock);
+	mutex_lock(&acpi_probe_mutex);
 	for (ape = ap_head; nr; ape++, nr--) {
 		if (ACPI_COMPARE_NAME(ACPI_SIG_MADT, ape->id)) {
 			acpi_probe_count = 0;
@@ -1990,7 +1984,7 @@ int __init __acpi_probe_device_table(struct acpi_probe_entry *ap_head, int nr)
 				count++;
 		}
 	}
-	spin_unlock(&acpi_probe_lock);
+	mutex_unlock(&acpi_probe_mutex);
 
 	return count;
 }

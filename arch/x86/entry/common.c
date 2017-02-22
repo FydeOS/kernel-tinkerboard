@@ -268,6 +268,7 @@ static void exit_to_usermode_loop(struct pt_regs *regs, u32 cached_flags)
 /* Called with IRQs disabled. */
 __visible inline void prepare_exit_to_usermode(struct pt_regs *regs)
 {
+	struct thread_info *ti = pt_regs_to_thread_info(regs);
 	u32 cached_flags;
 
 	if (IS_ENABLED(CONFIG_PROVE_LOCKING) && WARN_ON(!irqs_disabled()))
@@ -275,11 +276,21 @@ __visible inline void prepare_exit_to_usermode(struct pt_regs *regs)
 
 	lockdep_sys_exit();
 
-	cached_flags =
-		READ_ONCE(pt_regs_to_thread_info(regs)->flags);
+	cached_flags = READ_ONCE(ti->flags);
 
 	if (unlikely(cached_flags & EXIT_TO_USERMODE_LOOP_FLAGS))
 		exit_to_usermode_loop(regs, cached_flags);
+
+#ifdef CONFIG_COMPAT
+	/*
+	 * Compat syscalls set TS_COMPAT.  Make sure we clear it before
+	 * returning to user mode.  We need to clear it *after* signal
+	 * handling, because syscall restart has a fixup for compat
+	 * syscalls.  The fixup is exercised by the ptrace_syscall_32
+	 * selftest.
+	 */
+	ti->status &= ~TS_COMPAT;
+#endif
 
 	user_enter();
 }
@@ -332,14 +343,6 @@ __visible inline void syscall_return_slowpath(struct pt_regs *regs)
 	if (unlikely(cached_flags & SYSCALL_EXIT_WORK_FLAGS))
 		syscall_slow_exit_work(regs, cached_flags);
 
-#ifdef CONFIG_COMPAT
-	/*
-	 * Compat syscalls set TS_COMPAT.  Make sure we clear it before
-	 * returning to user mode.
-	 */
-	ti->status &= ~TS_COMPAT;
-#endif
-
 	local_irq_disable();
 	prepare_exit_to_usermode(regs);
 }
@@ -377,6 +380,14 @@ __always_inline void do_syscall_32_irqs_on(struct pt_regs *regs)
 		nr = syscall_trace_enter(regs);
 	}
 
+#ifdef CONFIG_ALT_SYSCALL
+	if (likely(nr <= ti->ia32_nr_syscalls)) {
+		regs->ax = ti->ia32_sys_call_table[nr](
+			(unsigned int)regs->bx, (unsigned int)regs->cx,
+			(unsigned int)regs->dx, (unsigned int)regs->si,
+			(unsigned int)regs->di, (unsigned int)regs->bp);
+	}
+#else
 	if (likely(nr < IA32_NR_syscalls)) {
 		/*
 		 * It's possible that a 32-bit syscall implementation
@@ -389,6 +400,7 @@ __always_inline void do_syscall_32_irqs_on(struct pt_regs *regs)
 			(unsigned int)regs->dx, (unsigned int)regs->si,
 			(unsigned int)regs->di, (unsigned int)regs->bp);
 	}
+#endif
 
 	syscall_return_slowpath(regs);
 }

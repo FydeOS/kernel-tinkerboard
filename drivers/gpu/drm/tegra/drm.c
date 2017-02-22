@@ -277,10 +277,6 @@ host1x_bo_lookup(struct drm_device *drm, struct drm_file *file, u32 handle)
 	if (!gem)
 		return NULL;
 
-	mutex_lock(&drm->struct_mutex);
-	drm_gem_object_unreference(gem);
-	mutex_unlock(&drm->struct_mutex);
-
 	bo = to_tegra_bo(gem);
 	return &bo->base;
 }
@@ -421,6 +417,7 @@ int tegra_drm_submit(struct tegra_drm_context *context,
 fail_submit:
 	host1x_job_unpin(job);
 fail:
+	host1x_job_bo_put(job);
 	host1x_job_put(job);
 	return err;
 }
@@ -991,7 +988,6 @@ static int host1x_drm_probe(struct host1x_device *dev)
 	if (!drm)
 		return -ENOMEM;
 
-	drm_dev_set_unique(drm, dev_name(&dev->dev));
 	dev_set_drvdata(&dev->dev, drm);
 
 	err = drm_dev_register(drm, 0);

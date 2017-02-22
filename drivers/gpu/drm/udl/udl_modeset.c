@@ -16,6 +16,7 @@
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_plane_helper.h>
 #include "udl_drv.h"
+#include "udl_cursor.h"
 
 /*
  * All DisplayLink bulk operations start with 0xAF, followed by specific code
@@ -235,15 +236,20 @@ static int udl_crtc_write_mode_to_hw(struct drm_crtc *crtc)
 	char *buf;
 	int retval;
 
+	mutex_lock(&udl->transfer_lock);
 	urb = udl_get_urb(dev);
-	if (!urb)
+	if (!urb) {
+		mutex_unlock(&udl->transfer_lock);
 		return -ENOMEM;
+	}
 
 	buf = (char *)urb->transfer_buffer;
 
 	memcpy(buf, udl->mode_buf, udl->mode_buf_len);
 	retval = udl_submit_urb(dev, urb, udl->mode_buf_len);
 	DRM_INFO("write mode info %d\n", udl->mode_buf_len);
+	mutex_unlock(&udl->transfer_lock);
+
 	return retval;
 }
 
@@ -257,9 +263,12 @@ static void udl_crtc_dpms(struct drm_crtc *crtc, int mode)
 	if (mode == DRM_MODE_DPMS_OFF) {
 		char *buf;
 		struct urb *urb;
+		mutex_lock(&udl->transfer_lock);
 		urb = udl_get_urb(dev);
-		if (!urb)
+		if (!urb) {
+			mutex_unlock(&udl->transfer_lock);
 			return;
+		}
 
 		buf = (char *)urb->transfer_buffer;
 		buf = udl_vidreg_lock(buf);
@@ -269,6 +278,7 @@ static void udl_crtc_dpms(struct drm_crtc *crtc, int mode)
 		buf = udl_dummy_render(buf);
 		retval = udl_submit_urb(dev, urb, buf - (char *)
 					urb->transfer_buffer);
+		mutex_unlock(&udl->transfer_lock);
 	} else {
 		if (udl->mode_buf_len == 0) {
 			DRM_ERROR("Trying to enable DPMS with no mode\n");
@@ -303,6 +313,16 @@ udl_pipe_set_base(struct drm_crtc *crtc, int x, int y,
 }
 #endif
 
+struct udl_flip_queue {
+	struct mutex lock;
+	struct workqueue_struct *wq;
+	struct delayed_work work;
+	struct drm_crtc *crtc;
+	struct drm_pending_vblank_event *event;
+	u64 flip_time;  /* in jiffies */
+	u64 vblank_interval;  /* in jiffies */
+};
+
 static int udl_crtc_mode_set(struct drm_crtc *crtc,
 			       struct drm_display_mode *mode,
 			       struct drm_display_mode *adjusted_mode,
@@ -313,9 +333,12 @@ static int udl_crtc_mode_set(struct drm_crtc *crtc,
 	struct drm_device *dev = crtc->dev;
 	struct udl_framebuffer *ufb = to_udl_fb(crtc->primary->fb);
 	struct udl_device *udl = dev->dev_private;
+	struct udl_flip_queue *flip_queue = udl->flip_queue;
 	char *buf;
 	char *wrptr;
 	int color_depth = 0;
+
+	udl->crtc = crtc;
 
 	buf = (char *)udl->mode_buf;
 
@@ -347,6 +370,13 @@ static int udl_crtc_mode_set(struct drm_crtc *crtc,
 	ufb->active_16 = true;
 	udl->mode_buf_len = wrptr - buf;
 
+	/* update flip queue vblank interval */
+	if (flip_queue) {
+		mutex_lock(&flip_queue->lock);
+		flip_queue->vblank_interval = HZ / mode->vrefresh;
+		mutex_unlock(&flip_queue->lock);
+	}
+
 	/* damage all of it */
 	udl_handle_damage(ufb, 0, 0, ufb->base.width, ufb->base.height);
 	return 0;
@@ -364,29 +394,82 @@ static void udl_crtc_destroy(struct drm_crtc *crtc)
 	kfree(crtc);
 }
 
+static void udl_sched_page_flip(struct work_struct *work)
+{
+	struct udl_flip_queue *flip_queue =
+		container_of(container_of(work, struct delayed_work, work),
+			struct udl_flip_queue, work);
+	struct drm_crtc *crtc;
+	struct drm_device *dev;
+	struct drm_pending_vblank_event *event;
+	struct drm_framebuffer *fb;
+
+	mutex_lock(&flip_queue->lock);
+	crtc = flip_queue->crtc;
+	dev = crtc->dev;
+	event = flip_queue->event;
+	fb = crtc->primary->fb;
+	flip_queue->event = NULL;
+	mutex_unlock(&flip_queue->lock);
+
+	if (fb)
+		udl_handle_damage(to_udl_fb(fb), 0, 0, fb->width, fb->height);
+	if (event) {
+		unsigned long flags;
+		spin_lock_irqsave(&dev->event_lock, flags);
+		drm_send_vblank_event(dev, 0, event);
+		spin_unlock_irqrestore(&dev->event_lock, flags);
+	}
+}
+
 static int udl_crtc_page_flip(struct drm_crtc *crtc,
 			      struct drm_framebuffer *fb,
 			      struct drm_pending_vblank_event *event,
 			      uint32_t page_flip_flags)
 {
-	struct udl_framebuffer *ufb = to_udl_fb(fb);
 	struct drm_device *dev = crtc->dev;
-	unsigned long flags;
+	struct udl_device *udl = dev->dev_private;
+	struct udl_flip_queue *flip_queue = udl->flip_queue;
 
-	struct drm_framebuffer *old_fb = crtc->primary->fb;
-	if (old_fb) {
-		struct udl_framebuffer *uold_fb = to_udl_fb(old_fb);
-		uold_fb->active_16 = false;
+	if (!flip_queue || !flip_queue->wq) {
+		DRM_ERROR("Uninitialized page flip queue\n");
+		return -ENOMEM;
 	}
-	ufb->active_16 = true;
 
-	udl_handle_damage(ufb, 0, 0, fb->width, fb->height);
+	mutex_lock(&flip_queue->lock);
 
-	spin_lock_irqsave(&dev->event_lock, flags);
-	if (event)
-		drm_send_vblank_event(dev, 0, event);
-	spin_unlock_irqrestore(&dev->event_lock, flags);
-	crtc->primary->fb = fb;
+	flip_queue->crtc = crtc;
+	if (fb) {
+		struct drm_framebuffer *old_fb;
+		struct udl_framebuffer *ufb;
+		ufb = to_udl_fb(fb);
+		old_fb = crtc->primary->fb;
+		if (old_fb) {
+			struct udl_framebuffer *uold_fb = to_udl_fb(old_fb);
+			uold_fb->active_16 = false;
+		}
+		ufb->active_16 = true;
+		crtc->primary->fb = fb;
+	}
+	if (event) {
+		if (flip_queue->event) {
+			unsigned long flags;
+			spin_lock_irqsave(&dev->event_lock, flags);
+			drm_send_vblank_event(dev, 0, flip_queue->event);
+			spin_unlock_irqrestore(&dev->event_lock, flags);
+		}
+		flip_queue->event = event;
+	}
+	if (!delayed_work_pending(&flip_queue->work)) {
+		u64 now = jiffies;
+		u64 next_flip =
+			flip_queue->flip_time + flip_queue->vblank_interval;
+		flip_queue->flip_time = (next_flip < now) ? now : next_flip;
+		queue_delayed_work(flip_queue->wq, &flip_queue->work,
+			flip_queue->flip_time - now);
+	}
+
+	mutex_unlock(&flip_queue->lock);
 
 	return 0;
 }
@@ -398,6 +481,48 @@ static void udl_crtc_prepare(struct drm_crtc *crtc)
 static void udl_crtc_commit(struct drm_crtc *crtc)
 {
 	udl_crtc_dpms(crtc, DRM_MODE_DPMS_ON);
+}
+
+static int udl_crtc_cursor_set(struct drm_crtc *crtc, struct drm_file *file,
+		uint32_t handle, uint32_t width, uint32_t height)
+{
+	struct drm_device *dev = crtc->dev;
+	struct udl_device *udl = dev->dev_private;
+	int ret;
+
+	mutex_lock(&dev->struct_mutex);
+	ret = udl_cursor_set(crtc, file, handle, width, height, udl->cursor);
+	mutex_unlock(&dev->struct_mutex);
+
+	if (ret) {
+		DRM_ERROR("Failed to set UDL cursor\n");
+		return ret;
+	}
+
+	return udl_crtc_page_flip(crtc, NULL, NULL, 0);
+}
+
+static int udl_crtc_cursor_move(struct drm_crtc *crtc, int x, int y)
+{
+	struct drm_device *dev = crtc->dev;
+	struct udl_device *udl = dev->dev_private;
+	int ret = 0;
+
+	mutex_lock(&dev->struct_mutex);
+	if (!udl_cursor_enabled(udl->cursor))
+		goto error;
+	ret = udl_cursor_move(crtc, x, y, udl->cursor);
+	if (ret) {
+		DRM_ERROR("Failed to move UDL cursor\n");
+		goto error;
+	}
+	mutex_unlock(&dev->struct_mutex);
+
+	return udl_crtc_page_flip(crtc, NULL, NULL, 0);
+
+error:
+	mutex_unlock(&dev->struct_mutex);
+	return ret;
 }
 
 static struct drm_crtc_helper_funcs udl_helper_funcs = {
@@ -413,6 +538,8 @@ static const struct drm_crtc_funcs udl_crtc_funcs = {
 	.set_config = drm_crtc_helper_set_config,
 	.destroy = udl_crtc_destroy,
 	.page_flip = udl_crtc_page_flip,
+	.cursor_set = udl_crtc_cursor_set,
+	.cursor_move = udl_crtc_cursor_move,
 };
 
 static int udl_crtc_init(struct drm_device *dev)
@@ -427,6 +554,35 @@ static int udl_crtc_init(struct drm_device *dev)
 	drm_crtc_helper_add(crtc, &udl_helper_funcs);
 
 	return 0;
+}
+
+static void udl_flip_workqueue_init(struct drm_device *dev)
+{
+	struct udl_device *udl = dev->dev_private;
+	struct udl_flip_queue *flip_queue =
+		kzalloc(sizeof(struct udl_flip_queue), GFP_KERNEL);
+	BUG_ON(!flip_queue);
+	mutex_init(&flip_queue->lock);
+	flip_queue->wq = create_singlethread_workqueue("flip");
+	BUG_ON(!flip_queue->wq);
+	INIT_DELAYED_WORK(&flip_queue->work, udl_sched_page_flip);
+	flip_queue->flip_time = jiffies;
+	flip_queue->vblank_interval = HZ / 60;
+	udl->flip_queue = flip_queue;
+}
+
+static void udl_flip_workqueue_cleanup(struct drm_device *dev)
+{
+	struct udl_device *udl = dev->dev_private;
+	struct udl_flip_queue *flip_queue = udl->flip_queue;
+	if (!flip_queue)
+		return;
+	if (flip_queue->wq) {
+		flush_workqueue(flip_queue->wq);
+		destroy_workqueue(flip_queue->wq);
+	}
+	mutex_destroy(&flip_queue->lock);
+	kfree(flip_queue);
 }
 
 static const struct drm_mode_config_funcs udl_mode_funcs = {
@@ -458,10 +614,24 @@ int udl_modeset_init(struct drm_device *dev)
 
 	udl_connector_init(dev, encoder);
 
+	udl_flip_workqueue_init(dev);
+
 	return 0;
+}
+
+void udl_modeset_restore(struct drm_device *dev)
+{
+	struct udl_device *udl = dev->dev_private;
+	struct udl_framebuffer *ufb;
+	if (!udl->crtc || !udl->crtc->primary->fb)
+		return;
+	udl_crtc_commit(udl->crtc);
+	ufb = to_udl_fb(udl->crtc->primary->fb);
+	udl_handle_damage(ufb, 0, 0, ufb->base.width, ufb->base.height);
 }
 
 void udl_modeset_cleanup(struct drm_device *dev)
 {
+	udl_flip_workqueue_cleanup(dev);
 	drm_mode_config_cleanup(dev);
 }

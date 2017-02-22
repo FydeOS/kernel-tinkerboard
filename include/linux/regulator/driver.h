@@ -93,6 +93,8 @@ struct regulator_linear_range {
  * @get_current_limit: Get the configured limit for a current-limited regulator.
  * @set_input_current_limit: Configure an input limit.
  *
+ * @set_active_discharge: Set active discharge enable/disable of regulators.
+ *
  * @set_mode: Set the configured operating mode for the regulator.
  * @get_mode: Get the configured operating mode for the regulator.
  * @get_status: Return actual (not as-configured) status of regulator, as a
@@ -149,6 +151,7 @@ struct regulator_ops {
 
 	int (*set_input_current_limit) (struct regulator_dev *, int lim_uA);
 	int (*set_over_current_protection) (struct regulator_dev *);
+	int (*set_active_discharge) (struct regulator_dev *, bool enable);
 
 	/* enable/disable regulator */
 	int (*enable) (struct regulator_dev *);
@@ -270,7 +273,8 @@ enum regulator_type {
  * @enable_time: Time taken for initial enable of regulator (in uS).
  * @off_on_delay: guard time (in uS), before re-enabling a regulator
  *
- * @of_map_mode: Maps a hardware mode defined in a DeviceTree to a standard mode
+ * @map_mode: Maps a hardware mode defined in device properties to a standard
+ *            mode.
  */
 struct regulator_desc {
 	const char *name;
@@ -318,7 +322,7 @@ struct regulator_desc {
 
 	unsigned int off_on_delay;
 
-	unsigned int (*of_map_mode)(unsigned int mode);
+	unsigned int (*map_mode)(unsigned int mode);
 };
 
 /**

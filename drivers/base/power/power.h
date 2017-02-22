@@ -20,14 +20,22 @@ static inline void pm_runtime_early_init(struct device *dev)
 extern void pm_runtime_init(struct device *dev);
 extern void pm_runtime_remove(struct device *dev);
 
+#define WAKE_IRQ_DEDICATED_ALLOCATED	BIT(0)
+#define WAKE_IRQ_DEDICATED_MANAGED	BIT(1)
+#define WAKE_IRQ_DEDICATED_MASK		(WAKE_IRQ_DEDICATED_ALLOCATED | \
+					 WAKE_IRQ_DEDICATED_MANAGED)
+
 struct wake_irq {
 	struct device *dev;
+	unsigned int status;
 	int irq;
-	bool dedicated_irq:1;
 };
 
 extern void dev_pm_arm_wake_irq(struct wake_irq *wirq);
 extern void dev_pm_disarm_wake_irq(struct wake_irq *wirq);
+extern void dev_pm_enable_wake_irq_check(struct device *dev,
+					 bool can_change_status);
+extern void dev_pm_disable_wake_irq_check(struct device *dev);
 
 #ifdef CONFIG_PM_SLEEP
 
@@ -75,6 +83,10 @@ extern int pm_qos_sysfs_add_flags(struct device *dev);
 extern void pm_qos_sysfs_remove_flags(struct device *dev);
 extern int pm_qos_sysfs_add_latency_tolerance(struct device *dev);
 extern void pm_qos_sysfs_remove_latency_tolerance(struct device *dev);
+extern void dark_resume_source_sysfs_add(struct device *dev);
+extern void dark_resume_source_sysfs_remove(struct device *dev);
+extern void dark_resume_consumer_sysfs_add(struct device *dev);
+extern void dark_resume_consumer_sysfs_remove(struct device *dev);
 
 #else /* CONFIG_PM */
 
@@ -99,6 +111,15 @@ static inline void dev_pm_arm_wake_irq(struct wake_irq *wirq)
 }
 
 static inline void dev_pm_disarm_wake_irq(struct wake_irq *wirq)
+{
+}
+
+static inline void dev_pm_enable_wake_irq_check(struct device *dev,
+						bool can_change_status)
+{
+}
+
+static inline void dev_pm_disable_wake_irq_check(struct device *dev)
 {
 }
 

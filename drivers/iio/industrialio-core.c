@@ -115,6 +115,7 @@ static const char * const iio_modifier_names[] = {
 	[IIO_MOD_Q] = "q",
 	[IIO_MOD_CO2] = "co2",
 	[IIO_MOD_VOC] = "voc",
+	[IIO_MOD_DOUBLE_TAP] = "double_tap",
 };
 
 /* relies on pairs of these shared then separate */
@@ -433,23 +434,21 @@ ssize_t iio_format_value(char *buf, unsigned int type, int size, int *vals)
 		scale_db = true;
 	case IIO_VAL_INT_PLUS_MICRO:
 		if (vals[1] < 0)
-			return sprintf(buf, "-%ld.%06u%s\n", abs(vals[0]),
-					-vals[1],
-				scale_db ? " dB" : "");
+			return sprintf(buf, "-%d.%06u%s\n", abs(vals[0]),
+				       -vals[1], scale_db ? " dB" : "");
 		else
 			return sprintf(buf, "%d.%06u%s\n", vals[0], vals[1],
 				scale_db ? " dB" : "");
 	case IIO_VAL_INT_PLUS_NANO:
 		if (vals[1] < 0)
-			return sprintf(buf, "-%ld.%09u\n", abs(vals[0]),
-					-vals[1]);
+			return sprintf(buf, "-%d.%09u\n", abs(vals[0]),
+				       -vals[1]);
 		else
 			return sprintf(buf, "%d.%09u\n", vals[0], vals[1]);
 	case IIO_VAL_FRACTIONAL:
 		tmp = div_s64((s64)vals[0] * 1000000000LL, vals[1]);
-		vals[1] = do_div(tmp, 1000000000LL);
-		vals[0] = tmp;
-		return sprintf(buf, "%d.%09u\n", vals[0], vals[1]);
+		vals[0] = (int)div_s64_rem(tmp, 1000000000, &vals[1]);
+		return sprintf(buf, "%d.%09u\n", vals[0], abs(vals[1]));
 	case IIO_VAL_FRACTIONAL_LOG2:
 		tmp = (s64)vals[0] * 1000000000LL >> vals[1];
 		vals[1] = do_div(tmp, 1000000000LL);
@@ -1042,7 +1041,7 @@ static void devm_iio_device_release(struct device *dev, void *res)
 	iio_device_free(*(struct iio_dev **)res);
 }
 
-static int devm_iio_device_match(struct device *dev, void *res, void *data)
+int devm_iio_device_match(struct device *dev, void *res, void *data)
 {
 	struct iio_dev **r = res;
 	if (!r || !*r) {
@@ -1051,6 +1050,7 @@ static int devm_iio_device_match(struct device *dev, void *res, void *data)
 	}
 	return *r == data;
 }
+EXPORT_SYMBOL_GPL(devm_iio_device_match);
 
 /**
  * devm_iio_device_alloc - Resource-managed iio_device_alloc()

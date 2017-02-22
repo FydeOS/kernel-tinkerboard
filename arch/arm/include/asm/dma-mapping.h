@@ -41,13 +41,6 @@ static inline void set_dma_ops(struct device *dev, struct dma_map_ops *ops)
 #define HAVE_ARCH_DMA_SUPPORTED 1
 extern int dma_supported(struct device *dev, u64 mask);
 
-/*
- * Note that while the generic code provides dummy dma_{alloc,free}_noncoherent
- * implementations, we don't provide a dma_cache_sync function so drivers using
- * this API are highlighted with build warnings.
- */
-#include <asm-generic/dma-mapping-common.h>
-
 #ifdef __arch_page_to_dma
 #error Please update to __arch_pfn_to_dma
 #endif
@@ -119,13 +112,13 @@ static inline dma_addr_t virt_to_dma(struct device *dev, void *addr)
 /* The ARM override for dma_max_pfn() */
 static inline unsigned long dma_max_pfn(struct device *dev)
 {
-	return PHYS_PFN_OFFSET + dma_to_pfn(dev, *dev->dma_mask);
+	return dma_to_pfn(dev, *dev->dma_mask);
 }
 #define dma_max_pfn(dev) dma_max_pfn(dev)
 
 #define arch_setup_dma_ops arch_setup_dma_ops
 extern void arch_setup_dma_ops(struct device *dev, u64 dma_base, u64 size,
-			       struct iommu_ops *iommu, bool coherent);
+			       const struct iommu_ops *iommu, bool coherent);
 
 #define arch_teardown_dma_ops arch_teardown_dma_ops
 extern void arch_teardown_dma_ops(struct device *dev);

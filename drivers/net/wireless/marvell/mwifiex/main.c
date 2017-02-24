@@ -17,6 +17,8 @@
  * this warranty disclaimer.
  */
 
+#include <linux/suspend.h>
+
 #include "main.h"
 #include "wmm.h"
 #include "cfg80211.h"
@@ -1535,6 +1537,7 @@ static irqreturn_t mwifiex_irq_wakeup_handler(int irq, void *priv)
 
 	/* Notify PM core we are wakeup source */
 	pm_wakeup_event(adapter->dev, 0);
+	pm_system_wakeup();
 
 	return IRQ_HANDLED;
 }

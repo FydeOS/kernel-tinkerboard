@@ -352,6 +352,17 @@ int cros_ec_remove(struct cros_ec_device *ec_dev)
 EXPORT_SYMBOL(cros_ec_remove);
 
 #ifdef CONFIG_PM_SLEEP
+static void cros_ec_clear_gpe(void) {
+#ifdef CONFIG_ACPI
+		/*
+		 * Clearing the GPE status in S0ix flow,
+		 * In S3, firmware will clear the status.
+		 */
+		if (ec_wake_gpe >= 0)
+			acpi_clear_gpe(NULL, ec_wake_gpe);
+#endif
+}
+
 int cros_ec_suspend(struct cros_ec_device *ec_dev)
 {
 	struct device *dev = ec_dev->dev;
@@ -360,13 +371,8 @@ int cros_ec_suspend(struct cros_ec_device *ec_dev)
 
 	if (!acpi_disabled && !pm_suspend_via_firmware()) {
 		sleep_event = HOST_SLEEP_EVENT_S0IX_SUSPEND;
-#ifdef CONFIG_ACPI
-		/* Clearing the GPE status for any pending event */
-		if (ec_wake_gpe >= 0)
-			acpi_clear_gpe(NULL, ec_wake_gpe);
-#endif
-	}
-	else
+		cros_ec_clear_gpe();
+	} else
 		sleep_event = HOST_SLEEP_EVENT_S3_SUSPEND;
 
 	ret = cros_ec_sleep_event(ec_dev, sleep_event);
@@ -397,9 +403,11 @@ int cros_ec_resume(struct cros_ec_device *ec_dev)
 	int ret;
 	u8 sleep_event;
 
-	sleep_event = (acpi_disabled || pm_suspend_via_firmware()) ?
-			HOST_SLEEP_EVENT_S3_RESUME :
-			HOST_SLEEP_EVENT_S0IX_RESUME;
+	if (!acpi_disabled && !pm_suspend_via_firmware()) {
+		sleep_event = HOST_SLEEP_EVENT_S0IX_RESUME;
+		cros_ec_clear_gpe();
+	} else
+		sleep_event = HOST_SLEEP_EVENT_S3_RESUME;
 
 	ec_dev->suspended = false;
 	enable_irq(ec_dev->irq);

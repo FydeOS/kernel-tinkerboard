@@ -103,6 +103,7 @@ struct rockchip_dfi {
 	struct clk *clk;
 	unsigned int top;
 	unsigned int floor;
+	bool enabled;
 };
 
 static unsigned int rockchip_dfi_calc_threshold_num(unsigned long rate,
@@ -231,6 +232,7 @@ static int rockchip_dfi_disable(struct devfreq_event_dev *edev)
 {
 	struct rockchip_dfi *info = devfreq_event_get_drvdata(edev);
 
+	info->enabled = false;
 	rockchip_dfi_stop_hardware_counter(edev);
 	clk_disable_unprepare(info->clk);
 
@@ -249,6 +251,7 @@ static int rockchip_dfi_enable(struct devfreq_event_dev *edev)
 	}
 
 	rockchip_dfi_start_hardware_counter(edev);
+	info->enabled = true;
 	return 0;
 }
 
@@ -279,7 +282,8 @@ static irqreturn_t ddrmon_thread_isr(int irq, void *data)
 	struct devfreq *devfreq = dmcfreq->devfreq;
 
 	mutex_lock(&devfreq->lock);
-	update_devfreq(devfreq);
+	if (info->enabled)
+		update_devfreq(devfreq);
 	mutex_unlock(&devfreq->lock);
 
 	return IRQ_HANDLED;

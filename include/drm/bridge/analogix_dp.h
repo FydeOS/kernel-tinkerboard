@@ -41,6 +41,7 @@ struct analogix_dp_plat_data {
 			 struct drm_connector *);
 };
 
+bool analogix_dp_is_psr_available(struct analogix_dp_device *dp);
 int analogix_dp_enable_psr(struct analogix_dp_device *dp);
 int analogix_dp_disable_psr(struct analogix_dp_device *dp);
 

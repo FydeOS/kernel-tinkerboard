@@ -202,7 +202,11 @@ static void rockchip_dfi_stop_hardware_counter(struct devfreq_event_dev *edev)
 	struct rockchip_dfi *info = devfreq_event_get_drvdata(edev);
 	void __iomem *dfi_regs = info->regs;
 
-	writel_relaxed(TIME_CNT_DIS | HARDWARE_DIS, dfi_regs + DDRMON_CTRL);
+	writel_relaxed(CLR_DDRMON_CTRL, dfi_regs + DDRMON_CTRL);
+	writel_relaxed(0, dfi_regs + DDRMON_TOP_NUM);
+	writel_relaxed(0, dfi_regs + DDRMON_FLOOR_NUM);
+	writel_relaxed(0, dfi_regs + DDRMON_TIMER_COUNT);
+	writel_relaxed(0x0000ffff, dfi_regs + DDRMON_INT_STATUS);
 }
 
 static int rockchip_dfi_get_busier_ch(struct devfreq_event_dev *edev)

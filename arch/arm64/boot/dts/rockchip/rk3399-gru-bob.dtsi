@@ -116,7 +116,6 @@
 	rockchip,pd_idle_dis_freq = <200000000>;
 	rockchip,sr_idle_dis_freq = <200000000>;
 	rockchip,sr_mc_gate_idle_dis_freq = <200000000>;
-	rockchip,srpd_lite_idle_dis_freq = <200000000>;
 	rockchip,standby_idle_dis_freq = <200000000>;
 };
 

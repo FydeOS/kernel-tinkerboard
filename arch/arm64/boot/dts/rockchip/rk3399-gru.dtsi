@@ -824,7 +824,7 @@ ap_i2c_audio: &i2c8 {
 	rockchip,pd_idle_dis_freq = <1000000000>;
 	rockchip,sr_idle_dis_freq = <1000000000>;
 	rockchip,sr_mc_gate_idle_dis_freq = <1000000000>;
-	rockchip,srpd_lite_idle_dis_freq = <1000000000>;
+	rockchip,srpd_lite_idle_dis_freq = <0>;
 	rockchip,standby_idle_dis_freq = <928000000>;
 };
 

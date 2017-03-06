@@ -13,6 +13,7 @@
  *  GNU General Public License for more details.
  */
 
+#include <linux/ctype.h>
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
@@ -70,15 +71,32 @@ static ssize_t vpd_attrib_read(struct file *filp, struct kobject *kobp,
 			info->value, info->bin_attr.size);
 }
 
+static int vpd_section_check_key_name(const uint8_t *key, int32_t key_len)
+{
+	int c;
+
+	while (key_len-- > 0) {
+		c = *key++;
+		if (!(isalnum(c) || c == '_'))
+			return VPD_FAIL;
+	}
+	return VPD_OK;
+}
+
 static int vpd_section_attrib_add(const uint8_t *key, int32_t key_len,
 		const uint8_t *value, int32_t value_len,
 		void *arg)
 {
 	int ret;
 	struct vpd_section *sec = arg;
-	struct vpd_attrib_info *info = kzalloc(sizeof(struct vpd_attrib_info),
-			GFP_KERNEL);
+	struct vpd_attrib_info *info;
 
+	if (vpd_section_check_key_name(key, key_len) != VPD_OK) {
+		/* Returns VPD_OK to decode next entry. */
+		return VPD_OK;
+	}
+
+	info = kzalloc(sizeof(struct vpd_attrib_info), GFP_KERNEL);
 	info->key = kzalloc(key_len + 1, GFP_KERNEL);
 	if (!info->key)
 		return -ENOMEM;

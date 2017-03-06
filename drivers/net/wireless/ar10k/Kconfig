@@ -3,6 +3,8 @@ config AR10K
 
 	depends on PCI
 	depends on HAS_DMA
+	# competing implementations; only one must be enabled to avoid conflicts
+	depends on !ATH10K
 	select FW_LOADER
 	select NEW_LEDS
 	select LEDS_CLASS

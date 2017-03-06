@@ -1571,7 +1571,6 @@ static void msdc_enable_sdio_irq(struct mmc_host *mmc, int enable)
 
 	host->irq_thread_alive = true;
 	if (enable) {
-		pm_runtime_get_sync(host->dev);
 		msdc_recheck_sdio_irq(host);
 
 		spin_lock_irqsave(&host->irqlock, flags);
@@ -1727,6 +1726,10 @@ static int msdc_drv_probe(struct platform_device *pdev)
 	pm_runtime_set_autosuspend_delay(host->dev, MTK_MMC_AUTOSUSPEND_DELAY);
 	pm_runtime_use_autosuspend(host->dev);
 	pm_runtime_enable(host->dev);
+
+	if (host->mmc->caps & MMC_CAP_SDIO_IRQ)
+		pm_runtime_get_sync(host->dev);
+
 	ret = mmc_add_host(mmc);
 
 	if (ret)
@@ -1768,6 +1771,9 @@ static int msdc_drv_remove(struct platform_device *pdev)
 	mmc_remove_host(host->mmc);
 	msdc_deinit_hw(host);
 	msdc_gate_clock(host);
+
+	if (host->mmc->caps & MMC_CAP_SDIO_IRQ)
+		pm_runtime_put_sync(host->dev);
 
 	pm_runtime_disable(host->dev);
 	pm_runtime_put_noidle(host->dev);
@@ -1814,6 +1820,10 @@ static int msdc_runtime_suspend(struct device *dev)
 
 	msdc_save_reg(host);
 	msdc_gate_clock(host);
+	if (host->mmc->caps & MMC_CAP_SDIO_IRQ) {
+		pm_runtime_mark_last_busy(dev);
+		pm_runtime_put_autosuspend(dev);
+	}
 	return 0;
 }
 
@@ -1822,6 +1832,9 @@ static int msdc_runtime_resume(struct device *dev)
 	struct mmc_host *mmc = dev_get_drvdata(dev);
 	struct msdc_host *host = mmc_priv(mmc);
 
+	/* In SDIO irq mode, DATA1 slways need to be detected */
+	if (host->mmc->caps & MMC_CAP_SDIO_IRQ)
+		pm_runtime_get_sync(host->dev);
 	msdc_ungate_clock(host);
 	msdc_restore_reg(host);
 	return 0;

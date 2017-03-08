@@ -1010,6 +1010,7 @@ bool analogix_dp_is_psr_available(struct analogix_dp_device *dp)
 {
 	return dp->psr_enable;
 }
+EXPORT_SYMBOL(analogix_dp_is_psr_available);
 
 int analogix_dp_enable_psr(struct analogix_dp_device *dp)
 {

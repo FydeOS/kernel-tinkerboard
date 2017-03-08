@@ -603,15 +603,6 @@ static int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
 		return err;
 	}
 
-	/*
-	 * We need to read/write PCIE_RC_CONFIG_L1_SUBSTATE_CTRL2 before
-	 * enabling ASPM.  Otherwise L1PwrOnSc and L1PwrOnVal isn't
-	 * reliable and enabling ASPM doesn't work.  This is a controller
-	 * bug we need to work around.
-	 */
-	status = rockchip_pcie_read(rockchip, PCIE_RC_CONFIG_L1_SUBSTATE_CTRL2);
-	rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_L1_SUBSTATE_CTRL2);
-
 	/* Fix the transmitted FTS count desired to exit from L0s. */
 	status = rockchip_pcie_read(rockchip, PCIE_CORE_CTRL_PLC1);
 	status = (status & ~PCIE_CORE_CTRL_PLC1_FTS_MASK) |

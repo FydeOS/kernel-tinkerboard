@@ -28,6 +28,7 @@
 
 static const struct acpi_device_id cros_coreboot_acpi_match[] = {
 	{ "GOOGCB00", 0 },
+	{ "BOOT0000", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(acpi, cros_coreboot_acpi_match);

@@ -369,7 +369,7 @@ config MTK_THERMAL
 	bool "Temperature sensor driver for mediatek SoCs"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 	depends on HAS_IOMEM
-	depends on NVMEM || NVMEM=n
+	depends on NVMEM=y || NVMEM=n
 	depends on RESET_CONTROLLER
 	depends on CPU_FREQ
 	default y

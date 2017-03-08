@@ -225,7 +225,7 @@ struct rockchip_pcie {
 	struct	gpio_desc *ep_gpio;
 	u32	lanes;
 	u8	root_bus_nr;
-	bool	enable_gen2;
+	int	link_gen;
 	struct	device *dev;
 	struct	irq_domain *irq_domain;
 	u32     io_size;
@@ -521,7 +521,7 @@ static int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
 		return err;
 	}
 
-	if (rockchip->enable_gen2)
+	if (rockchip->link_gen == 2)
 		rockchip_pcie_write(rockchip, PCIE_CLIENT_GEN_SEL_2,
 				    PCIE_CLIENT_CONFIG);
 	else
@@ -600,7 +600,7 @@ static int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
 		return -ETIMEDOUT;
 	}
 
-	if (rockchip->enable_gen2) {
+	if (rockchip->link_gen == 2) {
 		/*
 		 * Enable retrain for gen2. This should be configured only after
 		 * gen1 finished.
@@ -838,8 +838,9 @@ static int rockchip_pcie_parse_dt(struct rockchip_pcie *rockchip)
 		rockchip->lanes = 1;
 	}
 
-	rockchip->enable_gen2 = !of_property_read_bool(node,
-						       "rockchip,disable-gen2");
+	rockchip->link_gen = of_pci_get_max_link_speed(node);
+	if (rockchip->link_gen < 0 || rockchip->link_gen > 2)
+		rockchip->link_gen = 2;
 
 	rockchip->core_rst = devm_reset_control_get(dev, "core");
 	if (IS_ERR(rockchip->core_rst)) {

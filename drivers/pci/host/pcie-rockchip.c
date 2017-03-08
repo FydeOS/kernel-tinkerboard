@@ -149,8 +149,8 @@
 #define   PCIE_RC_CONFIG_DCR_CSPL_SHIFT		18
 #define   PCIE_RC_CONFIG_DCR_CSPL_LIMIT		0xff
 #define   PCIE_RC_CONFIG_DCR_CPLS_SHIFT		26
-#define PCIE_RC_CONFIG_LINK_CAP                (PCIE_RC_CONFIG_BASE + 0xcc)
-#define   PCIE_RC_CONFIG_LINK_CAP_L0S          BIT(10)
+#define PCIE_RC_CONFIG_LINK_CAP		(PCIE_RC_CONFIG_BASE + 0xcc)
+#define   PCIE_RC_CONFIG_LINK_CAP_L0S		BIT(10)
 #define PCIE_RC_CONFIG_LCS		(PCIE_RC_CONFIG_BASE + 0xd0)
 #define PCIE_RC_CONFIG_L1_SUBSTATE_CTRL2 (PCIE_RC_CONFIG_BASE + 0x90c)
 #define PCIE_RC_CONFIG_THP_CAP		(PCIE_RC_CONFIG_BASE + 0x274)
@@ -230,8 +230,9 @@ struct rockchip_pcie {
 	u32     io_size;
 	int     offset;
 	phys_addr_t io_bus_addr;
-	void	__iomem *msg_region;
+	void    __iomem *msg_region;
 	u32     mem_size;
+	phys_addr_t msg_bus_addr;
 	phys_addr_t mem_bus_addr;
 };
 
@@ -567,7 +568,7 @@ static int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
 			    PCIE_CLIENT_ARI_ENABLE |
 			    PCIE_CLIENT_CONF_LANE_NUM(rockchip->lanes) |
 			    PCIE_CLIENT_MODE_RC,
-				PCIE_CLIENT_CONFIG);
+			    PCIE_CLIENT_CONFIG);
 
 	err = phy_power_on(rockchip->phy);
 	if (err) {
@@ -1168,6 +1169,7 @@ static int rockchip_pcie_prog_ib_atu(struct rockchip_pcie *rockchip,
 
 static int rockchip_cfg_atu(struct rockchip_pcie *rockchip)
 {
+	struct device *dev = rockchip->dev;
 	int offset;
 	int err;
 	int reg_no;
@@ -1180,15 +1182,14 @@ static int rockchip_cfg_atu(struct rockchip_pcie *rockchip)
 						(reg_no << 20),
 						0);
 		if (err) {
-			dev_err(rockchip->dev,
-					"program RC mem outbound ATU failed\n");
+			dev_err(dev, "program RC mem outbound ATU failed\n");
 			return err;
 		}
 	}
 
 	err = rockchip_pcie_prog_ib_atu(rockchip, 2, 32 - 1, 0x0, 0);
 	if (err) {
-		dev_err(rockchip->dev, "program RC mem inbound ATU failed\n");
+		dev_err(dev, "program RC mem inbound ATU failed\n");
 		return err;
 	}
 
@@ -1202,8 +1203,7 @@ static int rockchip_cfg_atu(struct rockchip_pcie *rockchip)
 						(reg_no << 20),
 						0);
 		if (err) {
-			dev_err(rockchip->dev,
-					"program RC io outbound ATU failed\n");
+			dev_err(dev, "program RC io outbound ATU failed\n");
 			return err;
 		}
 	}
@@ -1212,17 +1212,9 @@ static int rockchip_cfg_atu(struct rockchip_pcie *rockchip)
 	rockchip_pcie_prog_ob_atu(rockchip, reg_no + 1 + offset,
 				  AXI_WRAPPER_NOR_MSG,
 				  20 - 1, 0, 0);
-	if (rockchip->msg_region)
-		goto out;
 
-	rockchip->msg_region = devm_ioremap(rockchip->dev,
-					    rockchip->mem_bus_addr +
-					    ((reg_no + offset) << 20),
-					    SZ_1M);
-	if (!rockchip->msg_region)
-		err = -ENOMEM;
-
-out:
+	rockchip->msg_bus_addr = rockchip->mem_bus_addr +
+					((reg_no + offset) << 20);
 	return err;
 }
 
@@ -1319,7 +1311,6 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	platform_set_drvdata(pdev, rockchip);
-
 	rockchip->dev = dev;
 
 	err = rockchip_pcie_parse_dt(rockchip);
@@ -1407,6 +1398,13 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 	err = rockchip_cfg_atu(rockchip);
 	if (err)
 		goto err_free_res;
+
+	rockchip->msg_region = devm_ioremap(rockchip->dev,
+					    rockchip->msg_bus_addr, SZ_1M);
+	if (!rockchip->msg_region) {
+		err = -ENOMEM;
+		goto err_free_res;
+	}
 
 	bus = pci_scan_root_bus(&pdev->dev, 0, &rockchip_pcie_ops, rockchip, &res);
 	if (!bus) {

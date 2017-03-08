@@ -677,7 +677,7 @@ static int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
 	rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_THP_CAP);
 
 	/* Clear L0s from RC's link cap */
-	if (of_property_read_bool(dev->of_node, "quirk,apsm-no-l0s")) {
+	if (of_property_read_bool(dev->of_node, "aspm-no-l0s")) {
 		status = rockchip_pcie_read(rockchip, PCIE_RC_CONFIG_LINK_CAP);
 		status &= ~PCIE_RC_CONFIG_LINK_CAP_L0S;
 		rockchip_pcie_write(rockchip, status, PCIE_RC_CONFIG_LINK_CAP);

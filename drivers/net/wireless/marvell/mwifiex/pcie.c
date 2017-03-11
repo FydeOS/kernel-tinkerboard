@@ -2734,6 +2734,21 @@ static void mwifiex_pcie_device_dump(struct mwifiex_adapter *adapter)
 	schedule_work(&card->work);
 }
 
+static void mwifiex_pcie_free_buffers(struct mwifiex_adapter *adapter)
+{
+	struct pcie_service_card *card = adapter->card;
+	const struct mwifiex_pcie_card_reg *reg = card->pcie.reg;
+
+	if (reg->sleep_cookie)
+		mwifiex_pcie_delete_sleep_cookie_buf(adapter);
+
+	mwifiex_pcie_delete_cmdrsp_buf(adapter);
+	mwifiex_pcie_delete_evtbd_ring(adapter);
+	mwifiex_pcie_delete_rxbd_ring(adapter);
+	mwifiex_pcie_delete_txbd_ring(adapter);
+	card->cmdrsp_buf = NULL;
+}
+
 /*
  * This function initializes the PCI-E host memory space, WCB rings, etc.
  *
@@ -2845,13 +2860,6 @@ err_enable_dev:
 
 /*
  * This function cleans up the allocated card buffers.
- *
- * The following are freed by this function -
- *      - TXBD ring buffers
- *      - RXBD ring buffers
- *      - Event BD ring buffers
- *      - Command response ring buffer
- *      - Sleep cookie buffer
  */
 static void mwifiex_cleanup_pcie(struct mwifiex_adapter *adapter)
 {
@@ -2869,6 +2877,8 @@ static void mwifiex_cleanup_pcie(struct mwifiex_adapter *adapter)
 			mwifiex_dbg(adapter, ERROR,
 				    "Failed to write driver not-ready signature\n");
 	}
+
+	mwifiex_pcie_free_buffers(adapter);
 
 	if (pdev) {
 		pci_iounmap(pdev, card->pci_mmap);
@@ -3121,10 +3131,7 @@ err_cre_txbd:
 	pci_iounmap(pdev, card->pci_mmap1);
 }
 
-/* This function cleans up the PCI-E host memory space.
- * Some code is extracted from mwifiex_unregister_dev()
- *
- */
+/* This function cleans up the PCI-E host memory space. */
 static void mwifiex_pcie_down_dev(struct mwifiex_adapter *adapter)
 {
 	struct pcie_service_card *card = adapter->card;
@@ -3135,14 +3142,7 @@ static void mwifiex_pcie_down_dev(struct mwifiex_adapter *adapter)
 
 	adapter->seq_num = 0;
 
-	if (reg->sleep_cookie)
-		mwifiex_pcie_delete_sleep_cookie_buf(adapter);
-
-	mwifiex_pcie_delete_cmdrsp_buf(adapter);
-	mwifiex_pcie_delete_evtbd_ring(adapter);
-	mwifiex_pcie_delete_rxbd_ring(adapter);
-	mwifiex_pcie_delete_txbd_ring(adapter);
-	card->cmdrsp_buf = NULL;
+	mwifiex_pcie_free_buffers(adapter);
 }
 
 static struct mwifiex_if_ops pcie_ops = {

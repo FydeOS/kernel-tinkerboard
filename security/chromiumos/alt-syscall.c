@@ -232,6 +232,7 @@ static asmlinkage long alt_sys_prctl(int option, unsigned long arg2,
 #define __NR_compat_getppid	__NR_ia32_getppid
 #define __NR_compat_getpriority	__NR_ia32_getpriority
 #define __NR_compat_getresgid	__NR_ia32_getresgid
+#define __NR_compat_getrandom	__NR_ia32_getrandom
 #define __NR_compat_getresuid	__NR_ia32_getresuid
 #define __NR_compat_getrlimit	__NR_ia32_getrlimit
 #define __NR_compat_getrusage	__NR_ia32_getrusage
@@ -701,6 +702,7 @@ static struct syscall_whitelist_entry android_whitelist[] = {
 	SYSCALL_ENTRY(getpid),
 	SYSCALL_ENTRY(getppid),
 	SYSCALL_ENTRY_ALT(getpriority, android_getpriority),
+	SYSCALL_ENTRY(getrandom),
 	SYSCALL_ENTRY(getrlimit),
 	SYSCALL_ENTRY(getrusage),
 	SYSCALL_ENTRY(getsid),
@@ -1211,6 +1213,7 @@ static struct syscall_whitelist_entry android_compat_whitelist[] = {
 	COMPAT_SYSCALL_ENTRY(getpid),
 	COMPAT_SYSCALL_ENTRY(getppid),
 	COMPAT_SYSCALL_ENTRY_ALT(getpriority, android_getpriority),
+	COMPAT_SYSCALL_ENTRY(getrandom),
 	COMPAT_SYSCALL_ENTRY(getrusage),
 	COMPAT_SYSCALL_ENTRY(getsid),
 	COMPAT_SYSCALL_ENTRY(gettid),

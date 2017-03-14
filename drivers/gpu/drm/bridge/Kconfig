@@ -55,6 +55,7 @@ config DRM_GENERIC_GPIO_MUX
 	tristate "Generic GPIO-controlled mux"
 	depends on DRM
 	depends on OF
+	depends on GPIOLIB
 	select DRM_KMS_HELPER
 	---help---
 	  This bridge driver models a GPIO-controlled display mux with one

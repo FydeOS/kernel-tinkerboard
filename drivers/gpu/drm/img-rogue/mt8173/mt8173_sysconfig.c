@@ -354,7 +354,8 @@ static unsigned long mtk_mfg_get_dynamic_power(unsigned long freq,
 		power += max_dynamic_power[low_idx];
 	}
 
-	power = (IMG_UINT32)(((IMG_UINT64)power * voltage * voltage)/1000000);
+	power = (IMG_UINT32)div_u64((IMG_UINT64)power * voltage * voltage,
+				    1000000UL);
 
 	return power;
 	#undef NUM_RANGE

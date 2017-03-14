@@ -300,7 +300,9 @@ static int dwc3_rockchip_probe(struct platform_device *pdev)
 	return 0;
 
 err1:
-	dev_err(rockchip->dev, "Bailing out, error %d\n", ret);
+	if (ret != -EPROBE_DEFER)
+		dev_err(rockchip->dev, "Bailing out, error %d\n", ret);
+
 	for (i = 0; i < rockchip->num_clocks; i++) {
 		clk_disable_unprepare(rockchip->clks[i]);
 		clk_put(rockchip->clks[i]);

@@ -288,7 +288,8 @@ static inline void update_turbo_state(void)
 
 static void intel_pstate_hwp_set(void)
 {
-	int min, hw_min, max, hw_max, cpu, range, adj_range;
+	int min, hw_min, max, hw_max, cpu;
+	struct perf_limits *perf_limits = limits;
 	u64 value, cap;
 
 	get_online_cpus();
@@ -300,17 +301,15 @@ static void intel_pstate_hwp_set(void)
 			hw_max = HWP_GUARANTEED_PERF(cap);
 		else
 			hw_max = HWP_HIGHEST_PERF(cap);
-		range = hw_max - hw_min;
+
+		min = hw_max * perf_limits->min_perf_pct / 100;
 
 		rdmsrl_on_cpu(cpu, MSR_HWP_REQUEST, &value);
-		adj_range = limits->min_perf_pct * range / 100;
-		min = hw_min + adj_range;
+
 		value &= ~HWP_MIN_PERF(~0L);
 		value |= HWP_MIN_PERF(min);
 
-		adj_range = limits->max_perf_pct * range / 100;
-		max = hw_min + adj_range;
-
+		max = hw_max * perf_limits->max_perf_pct / 100;
 		value &= ~HWP_MAX_PERF(~0L);
 		value |= HWP_MAX_PERF(max);
 		wrmsrl_on_cpu(cpu, MSR_HWP_REQUEST, value);

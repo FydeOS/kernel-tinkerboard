@@ -23,7 +23,7 @@ config DRM_POWERVR_ROGUE_DEBUG
 
 config DRM_POWERVR_ROGUE_PDUMP
 	bool "Enable PowerVR Rogue PDUMP tracing."
-	depends on DRM_POWERVR_ROGUE=m
+	depends on DRM_POWERVR_ROGUE
 	default n
 	help
 	  Enable PDUMP.

@@ -2468,6 +2468,7 @@ SYSCALL_DEFINE3(getcpu, unsigned __user *, cpup, unsigned __user *, nodep,
 		err |= put_user(cpu_to_node(cpu), nodep);
 	return err ? -EFAULT : 0;
 }
+EXPORT_SYMBOL(sys_getcpu);
 
 /**
  * do_sysinfo - fill in sysinfo struct

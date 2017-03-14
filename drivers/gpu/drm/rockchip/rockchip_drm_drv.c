@@ -611,6 +611,10 @@ static int rockchip_drm_platform_probe(struct platform_device *pdev)
 		dev_err(dev, "No available vop found for display-subsystem.\n");
 		return -ENODEV;
 	}
+
+	if (is_support_iommu && !iommu_present(&platform_bus_type))
+		return -EPROBE_DEFER;
+
 	/*
 	 * For each bound crtc, bind the encoders attached to its
 	 * remote endpoint.

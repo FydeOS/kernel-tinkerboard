@@ -277,10 +277,13 @@ static int dwc3_rockchip_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto err1;
 
+	pm_runtime_set_active(dev);
+	pm_runtime_enable(dev);
+
 	if (!rockchip->edev) {
 		ret = dwc3_rockchip_of_populate(rockchip);
 		if (ret)
-			goto err1;
+			goto err2;
 	} else {
 		/*
 		 * Populate only if cable is connected.
@@ -292,13 +295,11 @@ static int dwc3_rockchip_probe(struct platform_device *pdev)
 			schedule_work(&rockchip->otg_work);
 	}
 
-	pm_runtime_set_active(dev);
-	pm_runtime_enable(dev);
-	pm_runtime_get_sync(dev);
-
 	mutex_unlock(&rockchip->lock);
 	return 0;
 
+err2:
+	pm_runtime_disable(dev);
 err1:
 	if (ret != -EPROBE_DEFER)
 		dev_err(rockchip->dev, "Bailing out, error %d\n", ret);
@@ -318,11 +319,10 @@ static int dwc3_rockchip_remove(struct platform_device *pdev)
 	struct device		*dev = &pdev->dev;
 	int			i;
 
-	pm_runtime_put_sync(dev);
-	pm_runtime_disable(dev);
-
 	dwc3_rockchip_extcon_unregister(rockchip);
 	dwc3_rockchip_of_depopulate(rockchip);
+
+	pm_runtime_disable(dev);
 
 	for (i = 0; i < rockchip->num_clocks; i++) {
 		if (!pm_runtime_status_suspended(dev))

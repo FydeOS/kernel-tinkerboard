@@ -103,9 +103,10 @@ static void dwc3_rockchip_otg_extcon_evt_work(struct work_struct *work)
 		 * Give the port some time to settle before resetting it.
 		 * Non-scientific experiments suggest that this additional
 		 * delay helps to avoid 'port not accepting address' errors
-		 * (error -71).
+		 * (error -71). Note that a delay of 50 mS was found to be
+		 * insufficient.
 		 */
-		usleep_range(10000, 20000);
+		msleep(100);
 		reset_control_assert(rockchip->otg_rst);
 		reset_control_deassert(rockchip->otg_rst);
 

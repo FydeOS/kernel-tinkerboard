@@ -1250,7 +1250,7 @@ static int mtk_svs_late_init(void)
 {
 	int ret, i;
 
-	if (allow_svs_late_init)
+	if (!allow_svs_late_init)
 		return -EINVAL;
 
 	ret = cpufreq_register_notifier(&svs_cpufreq_notifier_block,

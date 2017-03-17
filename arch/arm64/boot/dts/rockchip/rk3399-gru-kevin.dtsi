@@ -282,6 +282,16 @@ ap_i2c_dig: &i2c2 {
 	};
 };
 
+/* Override the opp to instead of the rk3399-gru.dtsi */
+&cluster1_opp {
+	opp00 {
+		opp-microvolt = <800000>;
+	};
+	opp01 {
+		opp-microvolt = <800000>;
+	};
+};
+
 &edp {
 	status = "okay";
 

@@ -565,7 +565,7 @@
 };
 
 /*
- * Set some suspend operating points to avoid OVP in suspend
+ * 1. Set some suspend operating points to avoid OVP in suspend
  *
  * When we go into S3 ARM Trusted Firmware will transition our PWM regulators
  * from wherever they're at back to the "default" operating point (whatever
@@ -580,6 +580,10 @@
  * there will not be a big jump.  Technically we only need to get within 200 mV
  * of the default voltage, but the speed here should be fast enough and we need
  * suspend/resume to be rock solid.
+ *
+ * 2. Override the "opp" table
+ * To ensure that all opp frequencies are available, we must ensure the
+ * opp-microvolt be greater than the regulator-min-microvolt of pwm regulator.
  */
 
 &cluster0_opp {
@@ -589,6 +593,12 @@
 };
 
 &cluster1_opp {
+	opp00 {
+		opp-microvolt = <800107>;
+	};
+	opp01 {
+		opp-microvolt = <800107>;
+	};
 	opp06 {
 		opp-suspend;
 	};

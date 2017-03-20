@@ -5,6 +5,10 @@ config IWL7000
 	depends on PCI && HAS_IOMEM
 	select FW_LOADER
 
+	# Various defines are only available if CONFIG_ACPI
+	# is enabled but used outside of it.
+	depends on ACPI
+
 	# this is because we don't depend on mac80211
 	depends on CFG80211
 

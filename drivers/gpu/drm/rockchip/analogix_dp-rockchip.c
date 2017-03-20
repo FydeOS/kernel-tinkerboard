@@ -13,6 +13,7 @@
  */
 
 #include <linux/component.h>
+#include <linux/debugfs.h>
 #include <linux/mfd/syscon.h>
 #include <linux/of_device.h>
 #include <linux/of_graph.h>
@@ -67,12 +68,17 @@ struct rockchip_dp_device {
 
 	struct analogix_dp_device *adp;
 	struct analogix_dp_plat_data plat_data;
+
+	struct dentry            *debugfs_psr;
+	u64                      psr_active_ms;
+	ktime_t                  psr_start_time;
 };
 
 static int analogix_dp_psr_set(struct drm_encoder *encoder, bool enabled)
 {
 	struct rockchip_dp_device *dp = to_dp(encoder);
 	struct drm_crtc *crtc = dp->encoder.crtc;
+	s64 delta_ms;
 	int vact_end;
 	int ret;
 
@@ -97,6 +103,7 @@ static int analogix_dp_psr_set(struct drm_encoder *encoder, bool enabled)
 			return ret;
 		}
 		rockchip_drm_set_win_enabled(crtc, false);
+		dp->psr_start_time = ktime_get();
 	} else {
 		rockchip_drm_set_win_enabled(crtc, true);
 		ret = analogix_dp_disable_psr(dp->adp);
@@ -104,6 +111,9 @@ static int analogix_dp_psr_set(struct drm_encoder *encoder, bool enabled)
 			dev_err(dp->dev, "failed to disable psr %d\n", ret);
 			return ret;
 		}
+		delta_ms = ktime_ms_delta(ktime_get(), dp->psr_start_time);
+		if (!WARN_ON(delta_ms < 0))
+			dp->psr_active_ms += delta_ms;
 	}
 	return 0;
 }
@@ -387,9 +397,17 @@ static int rockchip_dp_bind(struct device *dev, struct device *master,
 	dp->plat_data.power_off = rockchip_dp_powerdown;
 	dp->plat_data.get_modes = rockchip_dp_get_modes;
 
+	dp->debugfs_psr = debugfs_create_u64("psr_active_ms", S_IRUGO,
+					     drm_dev->primary->debugfs_root,
+					     &dp->psr_active_ms);
+	if (IS_ERR(dp->debugfs_psr))
+		return PTR_ERR(dp->debugfs_psr);
+
 	dp->adp = analogix_dp_bind(dev, dp->drm_dev, &dp->plat_data);
-	if (IS_ERR(dp->adp))
+	if (IS_ERR(dp->adp)) {
+		debugfs_remove(dp->debugfs_psr);
 		return PTR_ERR(dp->adp);
+	}
 
 	rockchip_drm_psr_register(&dp->encoder, analogix_dp_psr_set);
 
@@ -404,6 +422,7 @@ static void rockchip_dp_unbind(struct device *dev, struct device *master,
 	rockchip_drm_psr_unregister(&dp->encoder);
 
 	analogix_dp_unbind(dp->adp);
+	debugfs_remove(dp->debugfs_psr);
 
 	dp->adp = ERR_PTR(-ENODEV);
 }

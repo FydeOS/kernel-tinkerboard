@@ -252,6 +252,7 @@
 #define THS_ZERO_PROGRAM_EN	BIT(6)
 
 #define DW_MIPI_NEEDS_PHY_CFG_CLK	BIT(0)
+#define DW_MIPI_NEEDS_GRF_CLK		BIT(1)
 
 enum {
 	BANDGAP_97_07,
@@ -294,6 +295,7 @@ struct dw_mipi_dsi {
 	struct regmap *grf_regmap;
 	void __iomem *base;
 
+	struct clk *grf_clk;
 	struct clk *pllref_clk;
 	struct clk *pclk;
 	struct clk *phy_cfg_clk;
@@ -981,6 +983,17 @@ static void dw_mipi_dsi_encoder_enable(struct drm_encoder *encoder)
 	dw_mipi_dsi_dphy_interface_config(dsi);
 	dw_mipi_dsi_clear_err(dsi);
 
+	/*
+	 * For the RK3399, the clk of grf must be enabled before writing grf
+	 * register. And for RK3288 or other soc, this grf_clk must be NULL,
+	 * the clk_prepare_enable return true directly.
+	 */
+	ret = clk_prepare_enable(dsi->grf_clk);
+	if (ret) {
+		dev_err(dsi->dev, "Failed to enable grf_clk: %d\n", ret);
+		return;
+	}
+
 	if (pdata->grf_dsi0_mode_reg)
 		regmap_write(dsi->grf_regmap, pdata->grf_dsi0_mode_reg,
 			     pdata->grf_dsi0_mode);
@@ -1010,6 +1023,8 @@ static void dw_mipi_dsi_encoder_enable(struct drm_encoder *encoder)
 
 	regmap_write(dsi->grf_regmap, pdata->grf_switch_reg, val);
 	dsi->dpms_mode = DRM_MODE_DPMS_ON;
+
+	clk_disable_unprepare(dsi->grf_clk);
 }
 
 static int
@@ -1159,7 +1174,7 @@ static struct dw_mipi_dsi_plat_data rk3399_mipi_dsi_drv_data = {
 	.grf_switch_reg = RK3399_GRF_SOC_CON19,
 	.grf_dsi0_mode = RK3399_GRF_DSI_MODE,
 	.grf_dsi0_mode_reg = RK3399_GRF_SOC_CON22,
-	.flags = DW_MIPI_NEEDS_PHY_CFG_CLK,
+	.flags = DW_MIPI_NEEDS_PHY_CFG_CLK | DW_MIPI_NEEDS_GRF_CLK,
 	.max_data_lanes = 4,
 };
 
@@ -1256,6 +1271,15 @@ static int dw_mipi_dsi_bind(struct device *dev, struct device *master,
 		if (IS_ERR(dsi->phy_cfg_clk)) {
 			ret = PTR_ERR(dsi->phy_cfg_clk);
 			dev_err(dev, "Unable to get phy_cfg_clk: %d\n", ret);
+			return ret;
+		}
+	}
+
+	if (pdata->flags & DW_MIPI_NEEDS_GRF_CLK) {
+		dsi->grf_clk = devm_clk_get(dev, "grf");
+		if (IS_ERR(dsi->grf_clk)) {
+			ret = PTR_ERR(dsi->grf_clk);
+			dev_err(dev, "Unable to get grf_clk: %d\n", ret);
 			return ret;
 		}
 	}

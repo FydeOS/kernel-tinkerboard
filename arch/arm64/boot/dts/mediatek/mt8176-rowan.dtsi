@@ -117,6 +117,33 @@
 		};
 	};
 
+	panel_fixed_avdd: regulator@1 {
+		compatible = "regulator-fixed";
+		regulator-name = "PANEL_AVDD";
+		regulator-min-microvolt = <5600000>;
+		regulator-max-microvolt = <5600000>;
+		enable-active-high;
+		gpio = <&pio 30 GPIO_ACTIVE_HIGH>;
+	};
+
+	panel_fixed_avee: regulator@1 {
+		compatible = "regulator-fixed";
+		regulator-name = "PANEL_AVEE";
+		regulator-min-microvolt = <5600000>;
+		regulator-max-microvolt = <5600000>;
+		enable-active-high;
+		gpio = <&pio 115 GPIO_ACTIVE_HIGH>;
+	};
+
+	panel_fixed_1v8: regulator@1 {
+		compatible = "regulator-fixed";
+		regulator-name = "PANEL_1V8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		enable-active-high;
+		gpio = <&pio 29 GPIO_ACTIVE_HIGH>;
+	};
+
 	sdio_fixed_3v3: fixedregulator@0 {
 		compatible = "regulator-fixed";
 		regulator-name = "3V3";
@@ -188,6 +215,24 @@
 	ports {
 		port{
 			dsi_out: endpoint {
+				remote-endpoint = <&panel_in>;
+			};
+		};
+	};
+
+	panel@0 {
+		compatible = "boe,tv097qxm-nu0";
+		reg = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&panel_pins>;
+		avdd-supply = <&panel_fixed_avdd>;
+		avee-supply = <&panel_fixed_avee>;
+		vddio-supply = <&panel_fixed_1v8>;
+		backlight = <&backlight_lcd>;
+		enable-gpios = <&pio 89 GPIO_ACTIVE_HIGH>;
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&dsi_out>;
 			};
 		};
 	};
@@ -642,6 +687,15 @@
 			input-enable;
 			drive-strength = <MTK_DRIVE_4mA>;
 			bias-pull-up;
+		};
+	};
+
+	panel_pins: panel_pins {
+		pins1 {
+			pinmux = <MT8173_PIN_29_UCTS2__FUNC_GPIO29>,
+				<MT8173_PIN_30_URTS2__FUNC_GPIO30>,
+				<MT8173_PIN_89_SRCLKENAI2__FUNC_GPIO89>,
+				<MT8173_PIN_115_URTS0__FUNC_GPIO115>;
 		};
 	};
 

@@ -44,6 +44,10 @@
 #define CR50_TIMEOUT_SHORT_MS	2	/* Short timeout during transactions */
 #define CR50_TIMEOUT_NOIRQ_MS	20	/* Timeout for TPM ready without IRQ */
 #define CR50_I2C_DID_VID	0x00281ae0L
+#define CR50_I2C_MAX_RETRIES	3	/* Max retries due to I2C errors */
+#define CR50_I2C_RETRY_DELAY_LO	55	/* Min usecs between retries on I2C */
+#define CR50_I2C_RETRY_DELAY_HI	65	/* Max usecs between retries on I2C */
+
 
 struct priv_data {
 	int irq;
@@ -114,6 +118,33 @@ static void cr50_i2c_disable_tpm_irq(struct tpm_chip *chip)
 }
 
 /*
+ * cr50_i2c_transfer - transfer messages over i2c
+ *
+ * @adapter: i2c adapter
+ * @msgs: array of messages to transfer
+ * @num: number of messages in the array
+ *
+ * Call unlocked i2c transfer routine with the provided parameters and retry
+ * in case of bus errors. Returns the number of transferred messages.
+ */
+static int cr50_i2c_transfer(struct device *dev, struct i2c_adapter *adapter,
+			     struct i2c_msg *msgs, int num)
+{
+	int rc, try;
+
+	for (try = 0; try < CR50_I2C_MAX_RETRIES; try++) {
+		rc = __i2c_transfer(adapter, msgs, num);
+		if (rc > 0)
+			break;
+		dev_warn(dev, "i2c transfer failed (attempt %d/%d): %d\n",
+			 try+1, CR50_I2C_MAX_RETRIES, rc);
+		usleep_range(CR50_I2C_RETRY_DELAY_LO, CR50_I2C_RETRY_DELAY_HI);
+	}
+
+	return rc;
+}
+
+/*
  * cr50_i2c_read() - read from TPM register
  *
  * @chip: TPM chip information
@@ -149,7 +180,7 @@ static int cr50_i2c_read(struct tpm_chip *chip, u8 addr, u8 *buffer, size_t len)
 	cr50_i2c_enable_tpm_irq(chip);
 
 	/* Send the register address byte to the TPM */
-	rc = __i2c_transfer(client->adapter, &msg1, 1);
+	rc = cr50_i2c_transfer(&chip->dev, client->adapter, &msg1, 1);
 	if (rc <= 0)
 		goto out;
 
@@ -159,7 +190,7 @@ static int cr50_i2c_read(struct tpm_chip *chip, u8 addr, u8 *buffer, size_t len)
 		goto out;
 
 	/* Read response data from the TPM */
-	rc = __i2c_transfer(client->adapter, &msg2, 1);
+	rc = cr50_i2c_transfer(&chip->dev, client->adapter, &msg2, 1);
 
 out:
 	cr50_i2c_disable_tpm_irq(chip);
@@ -212,7 +243,7 @@ static int cr50_i2c_write(struct tpm_chip *chip, u8 addr, u8 *buffer,
 	cr50_i2c_enable_tpm_irq(chip);
 
 	/* Send write request buffer with address */
-	rc = __i2c_transfer(client->adapter, &msg1, 1);
+	rc = cr50_i2c_transfer(&chip->dev, client->adapter, &msg1, 1);
 	if (rc <= 0)
 		goto out;
 

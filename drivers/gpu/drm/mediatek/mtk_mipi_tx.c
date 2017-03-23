@@ -136,12 +136,17 @@ static inline struct mtk_mipi_tx *mtk_mipi_tx_from_clk_hw(struct clk_hw *hw)
 	return container_of(hw, struct mtk_mipi_tx, pll_hw);
 }
 
+static void mtk_mipi_write(struct mtk_mipi_tx *mipi_tx, u32 data, u32 offset)
+{
+	writel(data, mipi_tx->regs + offset);
+}
+
 static void mtk_mipi_tx_clear_bits(struct mtk_mipi_tx *mipi_tx, u32 offset,
 				   u32 bits)
 {
 	u32 temp = readl(mipi_tx->regs + offset);
 
-	writel(temp & ~bits, mipi_tx->regs + offset);
+	mtk_mipi_write(mipi_tx, temp & ~bits, offset);
 }
 
 static void mtk_mipi_tx_set_bits(struct mtk_mipi_tx *mipi_tx, u32 offset,
@@ -149,7 +154,7 @@ static void mtk_mipi_tx_set_bits(struct mtk_mipi_tx *mipi_tx, u32 offset,
 {
 	u32 temp = readl(mipi_tx->regs + offset);
 
-	writel(temp | bits, mipi_tx->regs + offset);
+	mtk_mipi_write(mipi_tx, temp | bits, offset);
 }
 
 static void mtk_mipi_tx_update_bits(struct mtk_mipi_tx *mipi_tx, u32 offset,
@@ -157,7 +162,7 @@ static void mtk_mipi_tx_update_bits(struct mtk_mipi_tx *mipi_tx, u32 offset,
 {
 	u32 temp = readl(mipi_tx->regs + offset);
 
-	writel((temp & ~mask) | (data & mask), mipi_tx->regs + offset);
+	mtk_mipi_write(mipi_tx, (temp & ~mask) | (data & mask), offset);
 }
 
 static int mtk_mipi_tx_pll_prepare(struct clk_hw *hw)
@@ -231,7 +236,7 @@ static int mtk_mipi_tx_pll_prepare(struct clk_hw *hw)
 	 */
 	pcw = div_u64(((u64)mipi_tx->data_rate * 2 * txdiv) << 24,
 		      26000000);
-	writel(pcw, mipi_tx->regs + MIPITX_DSI_PLL_CON2);
+	mtk_mipi_write(mipi_tx, pcw, MIPITX_DSI_PLL_CON2);
 
 	mtk_mipi_tx_set_bits(mipi_tx, MIPITX_DSI_PLL_CON1,
 			     RG_DSI_MPPLL_SDM_FRA_EN);

@@ -157,11 +157,16 @@ static inline struct mtk_dsi *host_to_dsi(struct mipi_dsi_host *h)
 	return container_of(h, struct mtk_dsi, host);
 }
 
+static void mtk_dsi_write(struct mtk_dsi *dsi, u32 data, u32 offset)
+{
+	writel(data, dsi->regs + offset);
+}
+
 static void mtk_dsi_mask(struct mtk_dsi *dsi, u32 offset, u32 mask, u32 data)
 {
 	u32 temp = readl(dsi->regs + offset);
 
-	writel((temp & ~mask) | (data & mask), dsi->regs + offset);
+	mtk_dsi_write(dsi, (temp & ~mask) | (data & mask), offset);
 }
 
 static void dsi_phy_timconfig(struct mtk_dsi *dsi)
@@ -180,10 +185,10 @@ static void dsi_phy_timconfig(struct mtk_dsi *dsi)
 	timcon3 = NS_TO_CYCLE(0x40, cycle_time) | (2 * T_LPX) << 16 |
 		  NS_TO_CYCLE(80 + 52 * ui, cycle_time) << 8;
 
-	writel(timcon0, dsi->regs + DSI_PHY_TIMECON0);
-	writel(timcon1, dsi->regs + DSI_PHY_TIMECON1);
-	writel(timcon2, dsi->regs + DSI_PHY_TIMECON2);
-	writel(timcon3, dsi->regs + DSI_PHY_TIMECON3);
+	mtk_dsi_write(dsi, timcon0, DSI_PHY_TIMECON0);
+	mtk_dsi_write(dsi, timcon1, DSI_PHY_TIMECON1);
+	mtk_dsi_write(dsi, timcon2, DSI_PHY_TIMECON2);
+	mtk_dsi_write(dsi, timcon3, DSI_PHY_TIMECON3);
 }
 
 static void mtk_dsi_enable(struct mtk_dsi *dsi)
@@ -335,7 +340,7 @@ static void dsi_set_mode(struct mtk_dsi *dsi)
 			vid_mode = BURST_MODE;
 	}
 
-	writel(vid_mode, dsi->regs + DSI_MODE_CTRL);
+	mtk_dsi_write(dsi, vid_mode, DSI_MODE_CTRL);
 }
 
 static void dsi_ps_control_vact(struct mtk_dsi *dsi)
@@ -367,9 +372,9 @@ static void dsi_ps_control_vact(struct mtk_dsi *dsi)
 		break;
 	}
 
-	writel(vm->vactive, dsi->regs + DSI_VACT_NL);
-	writel(ps_bpp_mode, dsi->regs + DSI_PSCTRL);
-	writel(ps_wc, dsi->regs + DSI_HSTX_CKL_WC);
+	mtk_dsi_write(dsi, vm->vactive, DSI_VACT_NL);
+	mtk_dsi_write(dsi, ps_bpp_mode, DSI_PSCTRL);
+	mtk_dsi_write(dsi, ps_wc, DSI_HSTX_CKL_WC);
 }
 
 static void dsi_rxtx_control(struct mtk_dsi *dsi)
@@ -394,7 +399,7 @@ static void dsi_rxtx_control(struct mtk_dsi *dsi)
 		break;
 	}
 
-	writel(tmp_reg, dsi->regs + DSI_TXRX_CTRL);
+	mtk_dsi_write(dsi, tmp_reg, DSI_TXRX_CTRL);
 }
 
 static void dsi_ps_control(struct mtk_dsi *dsi)
@@ -426,7 +431,7 @@ static void dsi_ps_control(struct mtk_dsi *dsi)
 	}
 
 	tmp_reg += dsi->vm.hactive * dsi_tmp_buf_bpp & DSI_PS_WC;
-	writel(tmp_reg, dsi->regs + DSI_PSCTRL);
+	mtk_dsi_write(dsi, tmp_reg, DSI_PSCTRL);
 }
 
 static void dsi_config_vdo_timing(struct mtk_dsi *dsi)
@@ -443,10 +448,10 @@ static void dsi_config_vdo_timing(struct mtk_dsi *dsi)
 	else
 		dsi_tmp_buf_bpp = 3;
 
-	writel(vm->vsync_len, dsi->regs + DSI_VSA_NL);
-	writel(vm->vback_porch, dsi->regs + DSI_VBP_NL);
-	writel(vm->vfront_porch, dsi->regs + DSI_VFP_NL);
-	writel(vm->vactive, dsi->regs + DSI_VACT_NL);
+	mtk_dsi_write(dsi, vm->vsync_len, DSI_VSA_NL);
+	mtk_dsi_write(dsi, vm->vback_porch, DSI_VBP_NL);
+	mtk_dsi_write(dsi, vm->vfront_porch, DSI_VFP_NL);
+	mtk_dsi_write(dsi, vm->vactive, DSI_VACT_NL);
 
 	horizontal_sync_active_byte = (vm->hsync_len * dsi_tmp_buf_bpp - 10);
 
@@ -459,17 +464,17 @@ static void dsi_config_vdo_timing(struct mtk_dsi *dsi)
 
 	horizontal_frontporch_byte = (vm->hfront_porch * dsi_tmp_buf_bpp - 12);
 
-	writel(horizontal_sync_active_byte, dsi->regs + DSI_HSA_WC);
-	writel(horizontal_backporch_byte, dsi->regs + DSI_HBP_WC);
-	writel(horizontal_frontporch_byte, dsi->regs + DSI_HFP_WC);
+	mtk_dsi_write(dsi, horizontal_sync_active_byte, DSI_HSA_WC);
+	mtk_dsi_write(dsi, horizontal_backporch_byte, DSI_HBP_WC);
+	mtk_dsi_write(dsi, horizontal_frontporch_byte, DSI_HFP_WC);
 
 	dsi_ps_control(dsi);
 }
 
 static void mtk_dsi_start(struct mtk_dsi *dsi)
 {
-	writel(0, dsi->regs + DSI_START);
-	writel(1, dsi->regs + DSI_START);
+	mtk_dsi_write(dsi, 0, DSI_START);
+	mtk_dsi_write(dsi, 1, DSI_START);
 }
 
 static void mtk_dsi_poweroff(struct mtk_dsi *dsi)

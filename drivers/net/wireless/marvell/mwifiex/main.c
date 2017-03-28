@@ -1472,7 +1472,6 @@ mwifiex_reinit_sw(struct mwifiex_adapter *adapter)
 	}
 	mwifiex_dbg(adapter, INFO, "%s, successful\n", __func__);
 
-	complete_all(adapter->fw_done);
 	return 0;
 
 err_init_fw:

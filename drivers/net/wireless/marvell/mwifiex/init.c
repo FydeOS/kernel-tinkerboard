@@ -630,9 +630,10 @@ void mwifiex_free_priv(struct mwifiex_private *priv)
  *      - Free the adapter
  *      - Notify completion
  */
-void
+int
 mwifiex_shutdown_drv(struct mwifiex_adapter *adapter)
 {
+	int ret = -EINPROGRESS;
 	struct mwifiex_private *priv;
 	s32 i;
 	unsigned long flags;
@@ -640,7 +641,15 @@ mwifiex_shutdown_drv(struct mwifiex_adapter *adapter)
 
 	/* mwifiex already shutdown */
 	if (adapter->hw_status == MWIFIEX_HW_STATUS_NOT_READY)
-		return;
+		return 0;
+
+	adapter->hw_status = MWIFIEX_HW_STATUS_CLOSING;
+	/* wait for mwifiex_process to complete */
+	if (adapter->mwifiex_processing) {
+		mwifiex_dbg(adapter, WARN,
+			    "main process is still running\n");
+		return ret;
+	}
 
 	/* cancel current command */
 	if (adapter->curr_cmd) {
@@ -691,7 +700,11 @@ mwifiex_shutdown_drv(struct mwifiex_adapter *adapter)
 	mwifiex_adapter_cleanup(adapter);
 
 	spin_unlock(&adapter->mwifiex_lock);
-	adapter->hw_status = MWIFIEX_HW_STATUS_NOT_READY;
+
+	/* Notify completion */
+	ret = mwifiex_shutdown_fw_complete(adapter);
+
+	return ret;
 }
 
 /*

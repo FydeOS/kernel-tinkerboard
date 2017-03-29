@@ -827,13 +827,8 @@ void mwifiex_disable_wake(struct mwifiex_plt_wake_cfg *wake_cfg)
 {
 	if (wake_cfg && wake_cfg->irq_wifi >= 0) {
 		disable_irq_wake(wake_cfg->irq_wifi);
-		disable_irq(wake_cfg->irq_wifi);
-		if (wake_cfg->wake_by_wifi)
-			/*
-			 * Undo our disable, since interrupt handler already
-			 * did this.
-			 */
-			enable_irq(wake_cfg->irq_wifi);
+		if (!wake_cfg->wake_by_wifi)
+			disable_irq(wake_cfg->irq_wifi);
 	}
 }
 EXPORT_SYMBOL_GPL(mwifiex_disable_wake);

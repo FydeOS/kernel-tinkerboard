@@ -512,7 +512,6 @@ static void mwifiex_fw_dpc(const struct firmware *firmware, void *context)
 	struct mwifiex_fw_image fw;
 	bool init_failed = false;
 	struct wireless_dev *wdev;
-	struct completion *fw_done = adapter->fw_done;
 
 	if (!firmware) {
 		mwifiex_dbg(adapter, ERROR,
@@ -651,7 +650,7 @@ done:
 	if (init_failed)
 		mwifiex_free_adapter(adapter);
 	/* Tell all current and future waiters we're finished */
-	complete_all(fw_done);
+	complete_all(adapter->fw_done);
 	return;
 }
 

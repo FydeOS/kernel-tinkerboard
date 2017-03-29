@@ -17,8 +17,6 @@
  * this warranty disclaimer.
  */
 
-#include <linux/suspend.h>
-
 #include "decl.h"
 #include "ioctl.h"
 #include "util.h"
@@ -770,7 +768,6 @@ static irqreturn_t mwifiex_wake_irq_wifi(int irq, void *priv)
 
 	/* Notify PM core we are wakeup source */
 	pm_wakeup_event(cfg->dev, 0);
-	pm_system_wakeup();
 
 	return IRQ_HANDLED;
 }

@@ -24,6 +24,7 @@
 
 static u8 user_rmmod;
 static struct mwifiex_if_ops usb_ops;
+static struct semaphore add_remove_card_sem;
 
 static struct usb_device_id mwifiex_usb_table[] = {
 	/* 8766 */
@@ -385,8 +386,6 @@ static int mwifiex_usb_probe(struct usb_interface *intf,
 	if (!card)
 		return -ENOMEM;
 
-	init_completion(&card->fw_done);
-
 	id_vendor = le16_to_cpu(udev->descriptor.idVendor);
 	id_product = le16_to_cpu(udev->descriptor.idProduct);
 	bcd_device = le16_to_cpu(udev->descriptor.bcdDevice);
@@ -475,7 +474,7 @@ static int mwifiex_usb_probe(struct usb_interface *intf,
 
 	usb_set_intfdata(intf, card);
 
-	ret = mwifiex_add_card(card, &card->fw_done, &usb_ops,
+	ret = mwifiex_add_card(card, &add_remove_card_sem, &usb_ops,
 			       MWIFIEX_USB);
 	if (ret) {
 		pr_err("%s: mwifiex_add_card failed: %d\n", __func__, ret);
@@ -616,15 +615,13 @@ static void mwifiex_usb_disconnect(struct usb_interface *intf)
 	struct usb_card_rec *card = usb_get_intfdata(intf);
 	struct mwifiex_adapter *adapter;
 
-	if (!card) {
-		dev_err(&intf->dev, "%s: card is NULL\n", __func__);
+	if (!card || !card->adapter) {
+		pr_err("%s: card or card->adapter is NULL\n", __func__);
 		return;
 	}
 
-	wait_for_completion(&card->fw_done);
-
 	adapter = card->adapter;
-	if (!adapter || !adapter->priv_num)
+	if (!adapter->priv_num)
 		return;
 
 	if (user_rmmod) {
@@ -639,7 +636,7 @@ static void mwifiex_usb_disconnect(struct usb_interface *intf)
 
 	mwifiex_dbg(adapter, FATAL,
 		    "%s: removing card\n", __func__);
-	mwifiex_remove_card(adapter);
+	mwifiex_remove_card(adapter, &add_remove_card_sem);
 
 	usb_put_dev(interface_to_usbdev(intf));
 }
@@ -1213,13 +1210,16 @@ static struct mwifiex_if_ops usb_ops = {
 
 /* This function initializes the USB driver module.
  *
- * This registers the device with USB bus.
+ * This initiates the semaphore and registers the device with
+ * USB bus.
  */
 static int mwifiex_usb_init_module(void)
 {
 	int ret;
 
 	pr_debug("Marvell USB8797 Driver\n");
+
+	sema_init(&add_remove_card_sem, 1);
 
 	ret = usb_register(&mwifiex_usb_driver);
 	if (ret)
@@ -1240,6 +1240,9 @@ static int mwifiex_usb_init_module(void)
  */
 static void mwifiex_usb_cleanup_module(void)
 {
+	if (!down_interruptible(&add_remove_card_sem))
+		up(&add_remove_card_sem);
+
 	/* set the flag as user is removing this module */
 	user_rmmod = 1;
 

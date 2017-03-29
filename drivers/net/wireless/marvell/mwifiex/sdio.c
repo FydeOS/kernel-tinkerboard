@@ -49,6 +49,8 @@ static u8 user_rmmod;
 static struct mwifiex_if_ops sdio_ops;
 static unsigned long iface_work_flags;
 
+static struct semaphore add_remove_card_sem;
+
 static struct memory_type_mapping generic_mem_type_map[] = {
 	{"DUMP", NULL, 0, 0xDD},
 };
@@ -160,8 +162,6 @@ mwifiex_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
 	if (!card)
 		return -ENOMEM;
 
-	init_completion(&card->fw_done);
-
 	card->func = func;
 	card->device_id = id;
 
@@ -197,7 +197,7 @@ mwifiex_sdio_probe(struct sdio_func *func, const struct sdio_device_id *id)
 	/* device tree node parsing and platform specific configuration*/
 	mwifiex_sdio_probe_of(&func->dev, card);
 
-	if (mwifiex_add_card(card, &card->fw_done, &sdio_ops,
+	if (mwifiex_add_card(card, &add_remove_card_sem, &sdio_ops,
 			     MWIFIEX_SDIO)) {
 		pr_err("%s: add card failed\n", __func__);
 		sdio_claim_host(func);
@@ -271,8 +271,6 @@ mwifiex_sdio_remove(struct sdio_func *func)
 	if (!card)
 		return;
 
-	wait_for_completion(&card->fw_done);
-
 	adapter = card->adapter;
 	if (!adapter || !adapter->priv_num)
 		return;
@@ -287,7 +285,7 @@ mwifiex_sdio_remove(struct sdio_func *func)
 		mwifiex_init_shutdown_fw(priv, MWIFIEX_FUNC_SHUTDOWN);
 	}
 
-	mwifiex_remove_card(adapter);
+	mwifiex_remove_card(card->adapter, &add_remove_card_sem);
 }
 
 /*
@@ -2747,11 +2745,14 @@ static struct mwifiex_if_ops sdio_ops = {
 /*
  * This function initializes the SDIO driver.
  *
- * This registers the device with SDIO bus.
+ * This initiates the semaphore and registers the device with
+ * SDIO bus.
  */
 static int
 mwifiex_sdio_init_module(void)
 {
+	sema_init(&add_remove_card_sem, 1);
+
 	/* Clear the flag in case user removes the card. */
 	user_rmmod = 0;
 
@@ -2770,6 +2771,9 @@ mwifiex_sdio_init_module(void)
 static void
 mwifiex_sdio_cleanup_module(void)
 {
+	if (!down_interruptible(&add_remove_card_sem))
+		up(&add_remove_card_sem);
+
 	/* Set the flag as user is removing this module. */
 	user_rmmod = 1;
 	cancel_work_sync(&sdio_work);

@@ -689,6 +689,8 @@ done:
 			 * Device already has latest firmare. Send hash entry
 			 * to EC so we don't get subsequent FW update requests.
 			 */
+			dev_info(dev, "Port%d FW is already up-to-date %s\n",
+				 port, img->filename);
 			cros_ec_pd_send_hash_entry(dev, pd_ec, img);
 			break;
 		case PD_UNKNOWN_DEVICE:

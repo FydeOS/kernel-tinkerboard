@@ -1,5 +1,5 @@
 /*
- * Google Gru-Bob Rev 2+ board device tree source
+ * Google Gru-Bob Rev 2~3 board device tree source
  *
  * Copyright 2016 Google, Inc
  *
@@ -47,19 +47,34 @@
 
 / {
 	model = "Google Bob";
-	compatible = "google,bob-rev11", "google,bob-rev10",
-		     "google,bob-rev9", "google,bob-rev8",
-		     "google,bob-rev7", "google,bob-rev6",
-		     "google,bob-rev5", "google,bob-rev4",
-		     "google,bob-rev3", "google,bob-rev2",
+	compatible = "google,bob-rev2", "google,bob-rev3",
 		     "google,bob", "google,gru", "rockchip,rk3399";
 };
 
 /*
- * HACK for -rev2 to bump up voltage
+ * HACK: Disabling the ddr auto power down on bob board, since the caused by
+ * the ripple of hardware.
+ */
+&dmc {
+	rockchip,pd_idle_dis_freq = <200000000>;
+	rockchip,sr_idle_dis_freq = <200000000>;
+	rockchip,sr_mc_gate_idle_dis_freq = <200000000>;
+	rockchip,standby_idle_dis_freq = <200000000>;
+};
+
+&dmc_opp_table {
+	opp02 {
+		opp-suspend;
+	};
+
+	/delete-node/ opp03;
+};
+
+/*
+ * HACK for -rev2~3 to bump up voltage
  *
 　* There's some extra voltage drop on early revs of bob due to board layout
- * problems.  On -rev2 we're almost there, so only 50 mV for center-logic.
+ * problems. On -rev2~3 we're almost there, so only 50 mV for center-logic.
  *
  * NOTE: The 'regulator-microvolt-offset' is not a terribly well-tested and
  * has some quirks (like I think it doesn't necessarily validate constraints

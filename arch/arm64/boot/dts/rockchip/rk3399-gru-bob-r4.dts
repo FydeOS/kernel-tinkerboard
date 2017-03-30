@@ -1,7 +1,7 @@
 /*
- * Google Gru-Bob Rev 0~1 board device tree source
+ * Google Gru-Bob Rev 4+ board device tree source
  *
- * Copyright 2016 Google, Inc
+ * Copyright 2016-2017 Google, Inc
  *
  * This file is dual-licensed: you can use it either under the terms
  * of the GPL or the X11 license, at your option. Note that this dual
@@ -47,45 +47,16 @@
 
 / {
 	model = "Google Bob";
-	compatible = "google,bob-rev1", "google,bob-rev0",
+	compatible = "google,bob-rev13", "google,bob-rev12",
+		     "google,bob-rev11", "google,bob-rev10",
+		     "google,bob-rev9", "google,bob-rev8",
+		     "google,bob-rev7", "google,bob-rev6",
+		     "google,bob-rev5", "google,bob-rev4",
 		     "google,bob", "google,gru", "rockchip,rk3399";
 };
 
-/*
- * HACK: Disabling the ddr auto power down on bob board, since the caused by
- * the ripple of hardware.
- */
 &dmc {
-	rockchip,pd_idle_dis_freq = <200000000>;
-	rockchip,sr_idle_dis_freq = <200000000>;
-	rockchip,sr_mc_gate_idle_dis_freq = <200000000>;
-	rockchip,standby_idle_dis_freq = <200000000>;
-};
-
-&dmc_opp_table {
-	opp02 {
-		opp-suspend;
-	};
-
-	/delete-node/ opp03;
-};
-
-&pp3000_sd_slot {
-	/delete-property/ enable-active-high;
-	gpio = <&gpio4 29 GPIO_ACTIVE_LOW>;
-};
-
-/*
- * HACK for -rev0~1 to bump up voltage
- *
-　* There's some extra voltage drop on early revs of bob due to board layout
- * problems. On -rev0~1 we're almost there, so only 50 mV for center-logic.
- *
- * NOTE: The 'regulator-microvolt-offset' is not a terribly well-tested and
- * has some quirks (like I think it doesn't necessarily validate constraints
- * properly?), but seems to work and seems better than hardcoding every
- * operating point everywhere.
- */
-&ppvar_centerlogic {
-	regulator-microvolt-offset = <50000>;
+	rockchip,pd_idle_dis_freq = <800000000>;
+	rockchip,sr_idle_dis_freq = <800000000>;
+	rockchip,sr_mc_gate_idle_dis_freq = <800000000>;
 };

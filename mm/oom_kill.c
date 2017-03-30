@@ -43,6 +43,8 @@ int sysctl_panic_on_oom;
 int sysctl_oom_kill_allocating_task;
 int sysctl_oom_dump_tasks = 1;
 
+static unsigned long last_victim;
+
 DEFINE_MUTEX(oom_lock);
 
 #ifdef CONFIG_NUMA
@@ -277,12 +279,30 @@ enum oom_scan_t oom_scan_process_thread(struct oom_control *oc,
 		return OOM_SCAN_CONTINUE;
 
 	/*
-	 * This task already has access to memory reserves and is being killed.
-	 * Don't allow any other task to have access to the reserves.
+	 * We found a task that we already tried to kill, but it hasn't
+	 * finished dying yet.  Generally we want to avoid choosing another
+	 * victim until it finishes.  If we choose lots of victims then we'll
+	 * use up our memory reserves and none of the tasks will be able to
+	 * exit.
+	 *
+	 * ...but we can't wait forever.  If a task persistently refuses to
+	 * die then it might be waiting on a resource (mutex or whatever) that
+	 * won't be released until _some other_ task runs.  ...and maybe that
+	 * other is blocked waiting on memory (deadlock!).  If it's been
+	 * "long enough" then we'll just skip over existing victims and pick
+	 * someone new to kill.
 	 */
 	if (test_tsk_thread_flag(task, TIF_MEMDIE)) {
-		if (!is_sysrq_oom(oc))
-			return OOM_SCAN_ABORT;
+		if (!is_sysrq_oom(oc)) {
+			if (time_after(jiffies,
+				       last_victim + msecs_to_jiffies(100))) {
+				pr_warn("Task %s:%d refused to die\n",
+					task->comm, task->pid);
+				return OOM_SCAN_CONTINUE;
+			} else {
+				return OOM_SCAN_ABORT;
+			}
+		}
 	}
 	if (!task->mm)
 		return OOM_SCAN_CONTINUE;
@@ -433,6 +453,8 @@ void mark_oom_victim(struct task_struct *tsk)
 	 */
 	__thaw_task(tsk);
 	atomic_inc(&oom_victims);
+
+	last_victim = jiffies;
 }
 
 /**

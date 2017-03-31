@@ -511,6 +511,7 @@ static int mwifiex_pcie_disable_host_int(struct mwifiex_adapter *adapter)
 		}
 	}
 
+	atomic_set(&adapter->tx_hw_pending, 0);
 	return 0;
 }
 
@@ -566,7 +567,6 @@ static int mwifiex_init_txq_ring(struct mwifiex_adapter *adapter)
 		}
 	}
 
-	atomic_set(&adapter->tx_hw_pending, 0);
 	return 0;
 }
 

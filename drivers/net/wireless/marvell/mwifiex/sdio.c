@@ -439,7 +439,7 @@ static int mwifiex_sdio_suspend(struct device *dev)
 
 	adapter = card->adapter;
 	if (!adapter) {
-		dev_err(dev, "card is not valid\n");
+		dev_err(dev, "adapter is not valid\n");
 		return 0;
 	}
 

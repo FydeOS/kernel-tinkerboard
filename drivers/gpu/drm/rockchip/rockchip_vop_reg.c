@@ -380,6 +380,40 @@ static const struct vop_afbdc rk3399_vop_afbdc = {
 	.pic_size = VOP_REG(RK3399_AFBCD0_PIC_SIZE, 0xffffffff, 0),
 };
 
+static const struct vop_yuv2yuv rk3399_vop_yuv2yuv = {
+	.win0_y2r_en = VOP_REG(RK3399_YUV2YUV_WIN, 0x1, 1),
+	.win0_y2r_coefficients = {
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 0, 0xffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 0, 0xffff, 16),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 4, 0xffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 4, 0xffff, 16),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 8, 0xffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 8, 0xffff, 16),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 12, 0xffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 12, 0xffff, 16),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 16, 0xffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 20, 0xffffffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 24, 0xffffffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 28, 0xffffffff, 0),
+	},
+
+	.win1_y2r_en = VOP_REG(RK3399_YUV2YUV_WIN, 0x1, 9),
+	.win1_y2r_coefficients = {
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 0, 0xffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 0, 0xffff, 16),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 4, 0xffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 4, 0xffff, 16),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 8, 0xffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 8, 0xffff, 16),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 12, 0xffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 12, 0xffff, 16),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 16, 0xffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 20, 0xffffffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 24, 0xffffffff, 0),
+		VOP_REG(RK3399_WIN1_YUV2YUV_Y2R + 28, 0xffffffff, 0),
+	},
+};
+
 static const struct vop_reg_data rk3399_init_reg_table[] = {
 	{RK3399_SYS_CTRL, 0x2080f800},
 	{RK3399_DSP_CTRL0, 0x00000000},
@@ -436,6 +470,7 @@ static const struct vop_data rk3399_vop_big = {
 	.intr = &rk3399_vop_intr,
 	.ctrl = &rk3399_ctrl_data,
 	.afbdc = &rk3399_vop_afbdc,
+	.yuv2yuv = &rk3399_vop_yuv2yuv,
 	.win = rk3399_vop_win_data,
 	.win_size = ARRAY_SIZE(rk3399_vop_win_data),
 };

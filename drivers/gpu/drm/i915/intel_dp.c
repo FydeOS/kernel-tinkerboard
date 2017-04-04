@@ -3821,6 +3821,8 @@ intel_dp_get_dpcd(struct intel_dp *intel_dp)
 			dev_priv->psr.aux_frame_sync = frame_sync_cap ? true : false;
 			/* PSR2 needs frame sync as well */
 			dev_priv->psr.psr2_support = dev_priv->psr.aux_frame_sync;
+			/* PSR2 is completely broken (b/35587162, b/36457321) */
+			dev_priv->psr.psr2_support = false;
 			DRM_DEBUG_KMS("PSR2 %s on sink",
 				dev_priv->psr.psr2_support ? "supported" : "not supported");
 		}

@@ -11,6 +11,7 @@
  */
 
 #include <linux/init.h>
+#include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/pm.h>
@@ -46,6 +47,8 @@ struct cr50_spi_phy {
 	unsigned long sleep_delay_jiffies;
 	unsigned int wake_start_delay_msec;
 
+	struct completion tpm_ready;
+
 	u8 tx_buf[MAX_SPI_FRAMESIZE] ____cacheline_aligned;
 	u8 rx_buf[MAX_SPI_FRAMESIZE] ____cacheline_aligned;
 };
@@ -53,6 +56,20 @@ struct cr50_spi_phy {
 static struct cr50_spi_phy *to_cr50_spi_phy(struct tpm_tis_data *data)
 {
 	return container_of(data, struct cr50_spi_phy, priv);
+}
+
+/*
+ * The cr50 interrupt handler just signals waiting threads that the
+ * interrupt was asserted.  It does not do any processing triggered
+ * by interrupts but is instead used to avoid fixed delays.
+ */
+static irqreturn_t cr50_spi_irq_handler(int dummy, void *dev_id)
+{
+	struct cr50_spi_phy *phy = dev_id;
+
+	complete(&phy->tpm_ready);
+
+	return IRQ_HANDLED;
 }
 
 /*
@@ -72,8 +89,10 @@ static void cr50_ensure_access_delay(struct cr50_spi_phy *phy)
 	unsigned long time_now = jiffies;
 
 	if (time_in_range_open(time_now,
-			       phy->last_access_jiffies, allowed_access))
-		mdelay(jiffies_to_msecs(allowed_access - time_now));
+			       phy->last_access_jiffies, allowed_access)) {
+		wait_for_completion_timeout(&phy->tpm_ready,
+					    allowed_access - time_now);
+	}
 }
 
 /*
@@ -191,6 +210,7 @@ static int cr50_spi_xfer_bytes(struct tpm_tis_data *data, u32 addr,
 
 	spi_message_init(&m);
 	spi_message_add_tail(&spi_xfer, &m);
+	reinit_completion(&phy->tpm_ready);
 	ret = spi_sync_locked(phy->spi_device, &m);
 	if (!do_write)
 		memcpy(buf, phy->rx_buf, len);
@@ -295,6 +315,28 @@ static int cr50_spi_probe(struct spi_device *dev)
 	mutex_init(&phy->time_track_mutex);
 	phy->wake_after_jiffies = jiffies;
 	phy->last_access_jiffies = jiffies;
+
+	init_completion(&phy->tpm_ready);
+	if (dev->irq > 0) {
+		rc = devm_request_irq(&dev->dev, dev->irq, cr50_spi_irq_handler,
+				      IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+				      "cr50_spi", phy);
+		if (rc < 0) {
+			if (rc == -EPROBE_DEFER)
+				return rc;
+			dev_warn(&dev->dev, "Requesting IRQ %d failed: %d\n",
+				 dev->irq, rc);
+			/*
+			 * This is not fatal, the driver will fall back to
+			 * delays automatically, since tpm_ready will never
+			 * be completed without a registered irq handler.
+			 * So, just fall through.
+			 */
+		}
+	} else {
+		dev_warn(&dev->dev,
+			 "No IRQ - will use delays between transactions.\n");
+	}
 
 	rc = tpm_tis_core_init(&dev->dev, &phy->priv, -1, &cr50_spi_phy_ops,
 			       NULL);

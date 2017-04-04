@@ -156,6 +156,13 @@ ap_i2c_cam: &i2c2 {
 
 	cr50@0 {
 		compatible = "google,cr50";
+
+		interrupt-parent = <&gpio0>;
+		interrupts = <5 IRQ_TYPE_EDGE_RISING>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&h1_int_od_l>;
+
 		reg = <0>;
 		spi-max-frequency = <800000>; // TODO: review later
 	};

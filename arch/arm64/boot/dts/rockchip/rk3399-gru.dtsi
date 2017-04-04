@@ -1237,6 +1237,12 @@ ap_i2c_audio: &i2c8 {
 		};
 	};
 
+	tpm {
+		h1_int_od_l: h1-int-od-l {
+			rockchip,pins = <0 5 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
 	trackpad {
 		ap_i2c_tp_pu_en: ap-i2c-tp-pu-en {
 			rockchip,pins = <3 12 RK_FUNC_GPIO &pcfg_output_high>;

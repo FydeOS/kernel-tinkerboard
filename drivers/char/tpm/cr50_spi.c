@@ -27,7 +27,7 @@
  * - requires at least CR50_ACCESS_DELAY_MSEC between transactions
  */
 #define CR50_SLEEP_DELAY_MSEC			1000
-#define CR50_WAKE_START_DELAY_MSEC		60
+#define CR50_WAKE_START_DELAY_MSEC		1
 #define CR50_ACCESS_DELAY_MSEC			2
 
 #define MAX_SPI_FRAMESIZE			64

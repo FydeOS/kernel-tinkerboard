@@ -308,8 +308,8 @@ static int cr50_spi_probe(struct spi_device *dev)
 
 	phy->spi_device = dev;
 
-	phy->access_delay_jiffies = CR50_ACCESS_DELAY_MSEC;
-	phy->sleep_delay_jiffies = CR50_SLEEP_DELAY_MSEC;
+	phy->access_delay_jiffies = msecs_to_jiffies(CR50_ACCESS_DELAY_MSEC);
+	phy->sleep_delay_jiffies = msecs_to_jiffies(CR50_SLEEP_DELAY_MSEC);
 	phy->wake_start_delay_msec = CR50_WAKE_START_DELAY_MSEC;
 
 	mutex_init(&phy->time_track_mutex);

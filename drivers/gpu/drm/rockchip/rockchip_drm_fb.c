@@ -464,6 +464,8 @@ rockchip_drm_framebuffer_init(struct drm_device *dev,
 
 void rockchip_drm_mode_config_init(struct drm_device *dev)
 {
+	unsigned long rotation_flags = BIT(DRM_ROTATE_0) | BIT(DRM_REFLECT_Y);
+
 	dev->mode_config.min_width = 0;
 	dev->mode_config.min_height = 0;
 
@@ -476,6 +478,8 @@ void rockchip_drm_mode_config_init(struct drm_device *dev)
 	dev->mode_config.max_height = 4096;
 
 	dev->mode_config.allow_fb_modifiers = true;
+	dev->mode_config.rotation_property =
+		drm_mode_create_rotation_property(dev, rotation_flags);
 
 	dev->mode_config.funcs = &rockchip_drm_mode_config_funcs;
 }

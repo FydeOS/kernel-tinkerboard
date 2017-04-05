@@ -772,6 +772,12 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 	if (is_yuv_support(fb->pixel_format) && ((state->src.x1 >> 16) % 2))
 		return -EINVAL;
 
+	if (is_yuv_support(fb->pixel_format) && state->rotation)
+		return -EINVAL;
+
+	if (state->rotation && state->rotation != BIT(DRM_REFLECT_Y))
+		return -EINVAL;
+
 	if (fb->modifier[0] == DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC) {
 		struct vop *vop = to_vop(crtc);
 
@@ -788,6 +794,12 @@ static int vop_plane_atomic_check(struct drm_plane *plane,
 			DRM_ERROR("afbdc does not support offset display\n");
 			DRM_ERROR("xpos=%d, ypos=%d, offset=%d\n",
 				  state->src.x1, state->src.y1, fb->offsets[0]);
+			return -EINVAL;
+		}
+
+		if (state->rotation) {
+			DRM_ERROR("afbdc does not support rotation\n");
+			DRM_ERROR("rotation=%d\n", state->rotation);
 			return -EINVAL;
 		}
 	}
@@ -875,6 +887,9 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	offset = (src->x1 >> 16) * drm_format_plane_cpp(fb->pixel_format, 0);
 	offset += (src->y1 >> 16) * fb->pitches[0];
 	dma_addr = rk_obj->dma_addr + offset + fb->offsets[0];
+	/* For rotation, move dma_addr to the beginning of the last line. */
+	if (state->rotation == BIT(DRM_REFLECT_Y))
+		dma_addr += (actual_h - 1) * fb->pitches[0];
 
 	format = vop_convert_format(fb->pixel_format);
 
@@ -895,6 +910,7 @@ static void vop_plane_atomic_update(struct drm_plane *plane,
 	VOP_WIN_SET(vop, win, format, format);
 	VOP_WIN_SET(vop, win, yrgb_vir, fb->pitches[0] >> 2);
 	VOP_WIN_SET(vop, win, yrgb_mst, dma_addr);
+	VOP_WIN_SET(vop, win, y_mir_en, state->rotation == BIT(DRM_REFLECT_Y));
 
 	if (!win_index) {
 		VOP_YUV2YUV_SET(vop, win0_y2r_en, is_yuv);
@@ -1543,6 +1559,8 @@ static int vop_create_crtc(struct vop *vop)
 	struct drm_plane *primary = NULL, *cursor = NULL, *plane, *tmp;
 	struct drm_crtc *crtc = &vop->crtc;
 	struct device_node *port;
+	struct drm_property *rotation_property =
+		drm_dev->mode_config.rotation_property;
 	int ret;
 	int i;
 
@@ -1582,6 +1600,11 @@ static int vop_create_crtc(struct vop *vop)
 
 	ret = drm_crtc_init_with_planes(drm_dev, crtc, primary, cursor,
 					&vop_crtc_funcs, NULL);
+
+	drm_object_attach_property(&primary->base,
+				   rotation_property,
+				   DRM_ROTATE_0);
+
 	if (ret)
 		goto err_cleanup_planes;
 
@@ -1613,6 +1636,9 @@ static int vop_create_crtc(struct vop *vop)
 			goto err_cleanup_crtc;
 		}
 		drm_plane_helper_add(&vop_win->base, &plane_helper_funcs);
+		drm_object_attach_property(&vop_win->base.base,
+					   rotation_property,
+					   DRM_ROTATE_0);
 	}
 
 	port = of_get_child_by_name(dev->of_node, "port");

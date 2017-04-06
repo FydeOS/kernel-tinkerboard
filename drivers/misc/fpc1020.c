@@ -611,7 +611,7 @@ static int fpc1020_spi_probe(struct spi_device *spi)
 		goto err_remove_cdev;
 
 	error = request_irq(spi->irq, fpc1020_irq_handler,
-			    IRQF_TRIGGER_FALLING /* FIXME: follow DTS */,
+			    IRQF_TRIGGER_RISING /* FIXME: follow DTS */,
 			    "fpc1020", fpc);
 	if (error) {
 		dev_err(&spi->dev, "failed to request irq %d: %d",

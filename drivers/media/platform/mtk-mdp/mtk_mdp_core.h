@@ -242,21 +242,19 @@ extern int mtk_mdp_dbg_level;
 				level, __func__, __LINE__, ##args);	 \
 	} while (0)
 
-#define mtk_mdp_err(fmt, args...)					\
-	pr_err("[MTK_MDP][ERROR] %s:%d: " fmt "\n", __func__, __LINE__, \
-	       ##args)
-
-
 #define mtk_mdp_dbg_enter()  mtk_mdp_dbg(3, "+")
 #define mtk_mdp_dbg_leave()  mtk_mdp_dbg(3, "-")
 
 #else
 
 #define mtk_mdp_dbg(level, fmt, args...) {}
-#define mtk_mdp_err(fmt, args...)
 #define mtk_mdp_dbg_enter()
 #define mtk_mdp_dbg_leave()
 
 #endif
+
+#define mtk_mdp_err(fmt, args...)					\
+	pr_err("[MTK_MDP][ERROR] %s:%d: " fmt "\n", __func__, __LINE__, \
+	       ##args)
 
 #endif /* __MTK_MDP_CORE_H__ */

@@ -194,6 +194,8 @@ struct tpm_chip {
 	int needs_resume;
 	struct mutex resume_mutex;
 
+	unsigned long is_suspended;
+
 	struct mutex tpm_mutex;	/* tpm is processing */
 
 	unsigned long timeout_a; /* jiffies */

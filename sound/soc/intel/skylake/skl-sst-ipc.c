@@ -393,8 +393,11 @@ static void skl_ipc_process_reply(struct sst_generic_ipc *ipc,
 	struct ipc_message *msg;
 	u32 reply = header.primary & IPC_GLB_REPLY_STATUS_MASK;
 	u64 *ipc_header = (u64 *)(&header);
+	unsigned long flags;
 
+	spin_lock_irqsave(&ipc->dsp->spinlock, flags);
 	msg = skl_ipc_reply_get_msg(ipc, *ipc_header);
+	spin_unlock_irqrestore(&ipc->dsp->spinlock, flags);
 	if (msg == NULL) {
 		dev_dbg(ipc->dev, "ipc: rx list is empty\n");
 		return;
@@ -430,8 +433,10 @@ static void skl_ipc_process_reply(struct sst_generic_ipc *ipc,
 			ipc->dsp->fw_ops.get_fw_errcode(ipc->dsp));
 	}
 
+	spin_lock_irqsave(&ipc->dsp->spinlock, flags);
 	list_del(&msg->list);
 	sst_ipc_tx_msg_reply_complete(ipc, msg);
+	spin_unlock_irqrestore(&ipc->dsp->spinlock, flags);
 }
 
 irqreturn_t skl_dsp_irq_thread_handler(int irq, void *context)

@@ -329,6 +329,14 @@
 &i2c2 {
 	status = "okay";
 
+	cr50@50 {
+		compatible = "google,cr50";
+		reg = <0x50>;
+		interrupt-parent = <&pio>;
+		interrupts = <37 IRQ_TYPE_EDGE_RISING>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cr50_irq>;
+	};
 };
 
 &i2c3 {
@@ -476,6 +484,13 @@
 		pins1 {
 			pinmux = <MT8173_PIN_4_EINT4__FUNC_GPIO4>;
 			bias-disable;
+		};
+	};
+
+	cr50_irq: cr50_irq {
+		pins1 {
+			pinmux = <MT8173_PIN_37_EINT16__FUNC_GPIO37>;
+			input-enable;
 		};
 	};
 

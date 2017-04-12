@@ -660,6 +660,14 @@ static const struct acpi_device_id cr50_i2c_acpi_id[] = {
 MODULE_DEVICE_TABLE(acpi, cr50_i2c_acpi_id);
 #endif
 
+#ifdef CONFIG_OF
+static const struct of_device_id of_cr50_i2c_match[] = {
+	{ .compatible = "google,cr50", },
+	{}
+};
+MODULE_DEVICE_TABLE(of, of_cr50_i2c_match);
+#endif
+
 static int cr50_i2c_probe(struct i2c_client *client,
 			  const struct i2c_device_id *id)
 {
@@ -697,6 +705,7 @@ static struct i2c_driver cr50_i2c_driver = {
 		.name = "cr50_i2c",
 		.pm = &cr50_i2c_pm,
 		.acpi_match_table = ACPI_PTR(cr50_i2c_acpi_id),
+		.of_match_table = of_match_ptr(of_cr50_i2c_match),
 	},
 };
 

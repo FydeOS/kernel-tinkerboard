@@ -176,6 +176,7 @@
 #define DWC3_GCTL_DSBLCLKGTNG		(1 << 0)
 
 /* Global User Control 1 Register */
+#define DWC3_GUCTL1_TX_IPGAP_LINECHECK_DIS	BIT(28)
 #define DWC3_GUCTL1_DEV_L1_EXIT_BY_HW	(1 << 24)
 
 /* Global USB2 PHY Configuration Register */
@@ -746,6 +747,8 @@ struct dwc3_scratchpad_array {
  *			provide a free-running PHY clock.
  * @dis_del_phy_power_chg_quirk: set if we disable delay phy power
  *			change quirk.
+ * @dis_tx_ipgap_linecheck_quirk: set if we disable u2mac linestate
+ *			check during HS transmit.
  * @usb3_slow_suspend_quirk: set if need an extraordinary delay to
  *			wait for xHC enter the Halted state after
  *			the Run/Stop(R/S) bit is cleared to '0'.
@@ -898,6 +901,7 @@ struct dwc3 {
 	unsigned		dis_rxdet_inp3_quirk:1;
 	unsigned		dis_u2_freeclk_exists_quirk:1;
 	unsigned		dis_del_phy_power_chg_quirk:1;
+	unsigned		dis_tx_ipgap_linecheck_quirk:1;
 	unsigned		usb3_slow_suspend_quirk:1;
 	unsigned		usb3_warm_reset_on_resume_quirk;
 

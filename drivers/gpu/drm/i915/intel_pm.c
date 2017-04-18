@@ -26,6 +26,7 @@
  */
 
 #include <linux/cpufreq.h>
+#include <linux/dmi.h>
 #include "i915_drv.h"
 #include "intel_drv.h"
 #include "../../../platform/x86/intel_ips.h"
@@ -5271,6 +5272,62 @@ static int valleyview_rps_guar_freq(struct drm_i915_private *dev_priv)
 	return rp1;
 }
 
+static int intel_broken_gpupower_dmi_callback(const struct dmi_system_id *id)
+{
+	return 1;
+}
+
+static const struct dmi_system_id intel_broken_gpupower_dmi[] = {
+	{
+		.callback = intel_broken_gpupower_dmi_callback,
+		.ident = "AOPEN Ninja",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "GOOGLE"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Ninja"),
+		},
+	},
+	{
+		.callback = intel_broken_gpupower_dmi_callback,
+		.ident = "AOPEN Sumo",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "GOOGLE"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Sumo"),
+		},
+	},
+	{ }
+};
+
+static int valleyview_freq_opcode(int ddr_freq, int val)
+{
+	int mult, base;
+
+	switch (ddr_freq) {
+		case 800:
+			mult = 20;
+			base = 120;
+			break;
+		case 1066:
+			mult = 22;
+			base = 133;
+			break;
+		case 1333:
+			mult = 21;
+			base = 125;
+			break;
+		default:
+			return -1;
+	}
+
+	val /= mult;
+	val -= base / mult;
+	val += 0xbd;
+
+	if (val > 0xea)
+		val = 0xea;
+
+	return val;
+}
+
 static int valleyview_rps_max_freq(struct drm_i915_private *dev_priv)
 {
 	u32 val, rp0;
@@ -5280,6 +5337,12 @@ static int valleyview_rps_max_freq(struct drm_i915_private *dev_priv)
 	rp0 = (val & FB_GFX_MAX_FREQ_FUSE_MASK) >> FB_GFX_MAX_FREQ_FUSE_SHIFT;
 	/* Clamp to max */
 	rp0 = min_t(u32, rp0, 0xea);
+
+	/* Clamp to 650 MHz on AOpen baytrail chromeboxes */
+	if (dmi_check_system(intel_broken_gpupower_dmi)) {
+               DRM_INFO("AOPEN chromebox: clamping GPU clock to 650 MHz\n");
+               rp0 = min_t(u32, rp0, valleyview_freq_opcode(dev_priv->mem_freq, 650));
+	}
 
 	return rp0;
 }

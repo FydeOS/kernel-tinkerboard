@@ -25,10 +25,12 @@
  * - can go to sleep not earlier than after CR50_SLEEP_DELAY_MSEC
  * - needs up to CR50_WAKE_START_DELAY_MSEC to wake after sleep
  * - requires at least CR50_ACCESS_DELAY_MSEC between transactions
+ * - waits for up to CR50_FLOW_CONTROL_MSEC for flow control 'ready' indication
  */
 #define CR50_SLEEP_DELAY_MSEC			1000
 #define CR50_WAKE_START_DELAY_MSEC		1
 #define CR50_ACCESS_DELAY_MSEC			2
+#define CR50_FLOW_CONTROL_MSEC			100
 
 #define MAX_SPI_FRAMESIZE			64
 
@@ -137,7 +139,7 @@ static void cr50_wake_if_needed(struct cr50_spi_phy *phy)
 static int cr50_spi_flow_control(struct cr50_spi_phy *phy)
 {
 	unsigned long timeout_jiffies =
-		jiffies + msecs_to_jiffies(TPM_RETRY * TPM_TIMEOUT_RETRY);
+		jiffies + msecs_to_jiffies(CR50_FLOW_CONTROL_MSEC);
 	struct spi_message m;
 	int ret;
 	struct spi_transfer spi_xfer = {

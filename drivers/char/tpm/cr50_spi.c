@@ -355,7 +355,22 @@ static int cr50_spi_probe(struct spi_device *dev)
 	return 0;
 }
 
-static SIMPLE_DEV_PM_OPS(cr50_spi_pm, cr50_suspend, cr50_resume);
+static int cr50_spi_resume(struct device *dev)
+{
+	struct tpm_chip *chip = dev_get_drvdata(dev);
+	struct tpm_tis_data *data = dev_get_drvdata(&chip->dev);
+	struct cr50_spi_phy *phy = to_cr50_spi_phy(data);
+
+	/*
+	 * Jiffies not increased during suspend, so we need to reset
+	 * the time to wake Cr50 after resume.
+	 */
+	phy->wake_after_jiffies = jiffies;
+
+	return cr50_resume(dev);
+}
+
+static SIMPLE_DEV_PM_OPS(cr50_spi_pm, cr50_suspend, cr50_spi_resume);
 
 static void cr50_spi_shutdown(struct spi_device *dev)
 {

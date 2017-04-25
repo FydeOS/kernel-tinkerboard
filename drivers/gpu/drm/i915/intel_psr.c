@@ -826,6 +826,12 @@ void intel_psr_init(struct drm_device *dev)
 			i915.enable_psr = 0;
 	}
 
+	/* Chromeos baytrails were never tested with PSR, so disable it */
+	if (IS_VALLEYVIEW(dev)) {
+		DRM_INFO("PSR: forcing enable_psr=0 on valleyview\n");
+		i915.enable_psr = 0;
+	}
+
 	/* Set link_standby x link_off defaults */
 	if (IS_HASWELL(dev) || IS_BROADWELL(dev))
 		/* HSW and BDW require workarounds that we don't implement. */

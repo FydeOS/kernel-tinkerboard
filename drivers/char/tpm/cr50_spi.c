@@ -355,6 +355,7 @@ static int cr50_spi_probe(struct spi_device *dev)
 	return 0;
 }
 
+#ifdef CONFIG_PM_SLEEP
 static int cr50_spi_resume(struct device *dev)
 {
 	struct tpm_chip *chip = dev_get_drvdata(dev);
@@ -369,6 +370,7 @@ static int cr50_spi_resume(struct device *dev)
 
 	return cr50_resume(dev);
 }
+#endif
 
 static SIMPLE_DEV_PM_OPS(cr50_spi_pm, cr50_suspend, cr50_spi_resume);
 

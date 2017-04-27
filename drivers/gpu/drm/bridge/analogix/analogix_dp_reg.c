@@ -1038,25 +1038,53 @@ void analogix_dp_enable_psr_crc(struct analogix_dp_device *dp)
 	writel(PSR_VID_CRC_ENABLE, dp->reg_base + ANALOGIX_DP_CRC_CON);
 }
 
-static ssize_t analogix_dp_get_psr_status(struct analogix_dp_device *dp)
+static int analogix_dp_get_psr_status(struct analogix_dp_device *dp,
+				      int status)
 {
 	ssize_t val;
-	u8 status;
+	u8 reg, store = 0;
+	int cnt = 0;
 
-	val = drm_dp_dpcd_readb(&dp->aux, DP_PSR_STATUS, &status);
-	if (val < 0) {
-		dev_err(dp->dev, "PSR_STATUS read failed ret=%zd", val);
-		return val;
+	/* About 3ms for a loop */
+	while (cnt < 100) {
+		/* Read operation would takes 900us */
+		val = drm_dp_dpcd_readb(&dp->aux, DP_PSR_STATUS, &reg);
+		if (val < 0) {
+			dev_err(dp->dev, "PSR_STATUS read failed ret=%zd", val);
+			return val;
+		}
+
+		/*
+		 * Ensure the PSR_STATE should go to DP_PSR_SINK_ACTIVE_RFB
+		 * from DP_PSR_SINK_ACTIVE_SINK_SYNCED or
+		 * DP_PSR_SINK_ACTIVE_SRC_SYNCED.
+		 * Otherwise, if we get DP_PSR_SINK_ACTIVE_RFB twice in
+		 * succession, it show the Panel is stable PSR enabled state.
+		 */
+		if (status == DP_PSR_SINK_ACTIVE_RFB) {
+			if ((reg == DP_PSR_SINK_ACTIVE_RFB) &&
+			    ((store == DP_PSR_SINK_ACTIVE_SINK_SYNCED) ||
+			     (store == DP_PSR_SINK_ACTIVE_SRC_SYNCED) ||
+			     (store == DP_PSR_SINK_ACTIVE_RFB)))
+				return 0;
+			else
+				store = reg;
+		} else {
+			if (reg == status)
+				return 0;
+		}
+
+		usleep_range(2100, 2200);
+		cnt ++;
 	}
-	return status;
+
+	return -ETIMEDOUT;
 }
 
 int analogix_dp_send_psr_spd(struct analogix_dp_device *dp,
 			     struct edp_vsc_psr *vsc, bool blocking)
 {
 	unsigned int val;
-	int ret;
-	ssize_t psr_status;
 
 	/* don't send info frame */
 	val = readl(dp->reg_base + ANALOGIX_DP_PKT_SEND_CTL);
@@ -1101,16 +1129,10 @@ int analogix_dp_send_psr_spd(struct analogix_dp_device *dp,
 	if (!blocking)
 		return 0;
 
-	ret = readx_poll_timeout(analogix_dp_get_psr_status, dp, psr_status,
-		psr_status >= 0 &&
-		((vsc->DB1 && psr_status == DP_PSR_SINK_ACTIVE_RFB) ||
-		(!vsc->DB1 && psr_status == DP_PSR_SINK_INACTIVE)), 1500,
-		DP_TIMEOUT_PSR_LOOP_MS * 1000);
-	if (ret) {
-		dev_warn(dp->dev, "Failed to apply PSR %d\n", ret);
-		return ret;
-	}
-	return 0;
+	if (vsc->DB1)
+		return analogix_dp_get_psr_status(dp, DP_PSR_SINK_ACTIVE_RFB);
+	else
+		return analogix_dp_get_psr_status(dp, DP_PSR_SINK_INACTIVE);
 }
 
 ssize_t analogix_dp_transfer(struct analogix_dp_device *dp,

@@ -525,7 +525,7 @@ static bool vop_line_flag_irq_is_enabled(struct vop *vop)
 	return !!line_flag_irq;
 }
 
-static void vop_line_flag_irq_enable(struct vop *vop, int line_num)
+static void vop_line_flag_irq_enable(struct vop *vop)
 {
 	unsigned long flags;
 
@@ -534,7 +534,6 @@ static void vop_line_flag_irq_enable(struct vop *vop, int line_num)
 
 	spin_lock_irqsave(&vop->irq_lock, flags);
 
-	VOP_CTRL_SET(vop, line_flag_num[0], line_num);
 	VOP_INTR_SET_TYPE(vop, clear, LINE_FLAG_INTR, 1);
 	VOP_INTR_SET_TYPE(vop, enable, LINE_FLAG_INTR, 1);
 
@@ -1320,6 +1319,8 @@ static void vop_crtc_enable(struct drm_crtc *crtc)
 	VOP_CTRL_SET(vop, vact_st_end, val);
 	VOP_CTRL_SET(vop, vpost_st_end, val);
 
+	VOP_CTRL_SET(vop, line_flag_num[0], vact_end);
+
 	clk_set_rate(vop->dclk, adjusted_mode->clock * 1000);
 
 	VOP_CTRL_SET(vop, standby, 0);
@@ -1334,15 +1335,12 @@ static int dmc_notify(struct notifier_block *nb,
 	struct vop *vop = container_of(nb, struct vop, dmc_nb);
 	struct drm_crtc *crtc = &vop->crtc;
 	ktime_t *timeout = data;
-	int vact_end;
 	int ret;
 
 	if (WARN_ON(!vop->is_enabled))
 		return NOTIFY_BAD;
 
-	vact_end = crtc->mode.vtotal - crtc->mode.vsync_start +
-		   crtc->mode.vdisplay;
-	ret = rockchip_drm_wait_line_flag(crtc, vact_end, 100);
+	ret = rockchip_drm_wait_vact_end(crtc, 100);
 	*timeout = ktime_add_ns(vop->line_flag_timestamp,
 				rockchip_drm_get_vblank_ns(&crtc->mode));
 	if (ret) {
@@ -1826,19 +1824,16 @@ static void vop_win_init(struct vop *vop)
 }
 
 /**
- * rockchip_drm_wait_line_flag - acqiure the give line flag event
+ * rockchip_drm_wait_vact_end
  * @crtc: CRTC to enable line flag
- * @line_num: interested line number
  * @mstimeout: millisecond for timeout
  *
- * Driver would hold here until the interested line flag interrupt have
- * happened or timeout to wait.
+ * Wait for vact_end line flag irq or timeout.
  *
  * Returns:
  * Zero on success, negative errno on failure.
  */
-int rockchip_drm_wait_line_flag(struct drm_crtc *crtc, unsigned int line_num,
-				unsigned int mstimeout)
+int rockchip_drm_wait_vact_end(struct drm_crtc *crtc, unsigned int mstimeout)
 {
 	struct vop *vop = to_vop(crtc);
 	unsigned long jiffies_left;
@@ -1849,7 +1844,7 @@ int rockchip_drm_wait_line_flag(struct drm_crtc *crtc, unsigned int line_num,
 
 	mutex_lock(&vop->vop_lock);
 
-	if (line_num > crtc->mode.vtotal || mstimeout <= 0) {
+	if (mstimeout <= 0) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -1860,7 +1855,7 @@ int rockchip_drm_wait_line_flag(struct drm_crtc *crtc, unsigned int line_num,
 	}
 
 	reinit_completion(&vop->line_flag_completion);
-	vop_line_flag_irq_enable(vop, line_num);
+	vop_line_flag_irq_enable(vop);
 
 	jiffies_left = wait_for_completion_timeout(&vop->line_flag_completion,
 						   msecs_to_jiffies(mstimeout));
@@ -1876,7 +1871,7 @@ out:
 	mutex_unlock(&vop->vop_lock);
 	return ret;
 }
-EXPORT_SYMBOL(rockchip_drm_wait_line_flag);
+EXPORT_SYMBOL(rockchip_drm_wait_vact_end);
 
 static int vop_bind(struct device *dev, struct device *master, void *data)
 {

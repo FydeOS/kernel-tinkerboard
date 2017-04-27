@@ -90,8 +90,8 @@ static int analogix_dp_psr_set(struct drm_encoder *encoder, bool enabled)
 	if (enabled) {
 		vact_end = crtc->mode.vtotal - crtc->mode.vsync_start +
 			crtc->mode.vdisplay;
-		ret = rockchip_drm_wait_line_flag(dp->encoder.crtc, vact_end,
-						PSR_WAIT_LINE_FLAG_TIMEOUT_MS);
+		ret = rockchip_drm_wait_vact_end(dp->encoder.crtc,
+						 PSR_WAIT_LINE_FLAG_TIMEOUT_MS);
 		if (ret) {
 			dev_err(dp->dev, "line flag interrupt did not arrive\n");
 			return -ETIMEDOUT;

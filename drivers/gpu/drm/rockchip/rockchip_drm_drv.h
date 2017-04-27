@@ -100,8 +100,7 @@ int rockchip_drm_dma_attach_device(struct drm_device *drm_dev,
 				   struct device *dev);
 void rockchip_drm_dma_detach_device(struct drm_device *drm_dev,
 				    struct device *dev);
-int rockchip_drm_wait_line_flag(struct drm_crtc *crtc, unsigned int line_num,
-				unsigned int mstimeout);
+int rockchip_drm_wait_vact_end(struct drm_crtc *crtc, unsigned int mstimeout);
 
 void rockchip_drm_enable_dmc(struct rockchip_drm_private *priv);
 void rockchip_drm_disable_dmc(struct rockchip_drm_private *priv);

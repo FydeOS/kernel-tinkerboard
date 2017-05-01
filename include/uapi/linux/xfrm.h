@@ -432,6 +432,7 @@ struct xfrm_userpolicy_info {
 	/* Automatically expand selector to include matching ICMP payloads. */
 #define XFRM_POLICY_ICMP	2
 	__u8				share;
+	PACK_RESERVED(4);
 } __maybe_packed;
 
 struct xfrm_userpolicy_id {
@@ -454,13 +455,13 @@ struct xfrm_user_acquire {
 struct xfrm_user_expire {
 	struct xfrm_usersa_info		state;
 	__u8				hard;
-	PACK_RESERVED(3);
+	PACK_RESERVED(7);
 } __maybe_packed;
 
 struct xfrm_user_polexpire {
 	struct xfrm_userpolicy_info	pol;
 	__u8				hard;
-	PACK_RESERVED(3);
+	PACK_RESERVED(7);
 } __maybe_packed;
 
 struct xfrm_usersa_flush {

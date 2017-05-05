@@ -438,6 +438,20 @@ static inline void binder_lock(const char *tag)
 	trace_binder_locked(tag);
 }
 
+static inline int __must_check binder_lock_interruptible(const char *tag)
+{
+	int error;
+
+	trace_binder_lock(tag);
+	error = mutex_lock_interruptible(&binder_main_lock);
+	if (error)
+		return error;
+	preempt_disable();
+	trace_binder_locked(tag);
+
+	return 0;
+}
+
 static inline void binder_unlock(const char *tag)
 {
 	trace_binder_unlock(tag);
@@ -2315,12 +2329,16 @@ retry:
 	if (wait_for_proc_work)
 		atomic_dec(&proc->ready_threads);
 
+	if (!ret) {
+		ret = binder_lock_interruptible(__func__);
+		if (ret == -EINTR)
+			ret = -ERESTARTSYS;
+	}
+
 	if (ret) {
 		*binder_unlocked = true;
 		return ret;
 	}
-
-	binder_lock(__func__);
 
 	while (1) {
 		uint32_t cmd;

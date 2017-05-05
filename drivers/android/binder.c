@@ -2635,9 +2635,10 @@ static void binder_release_work(struct list_head *list)
 
 }
 
-static struct binder_thread *binder_get_thread(struct binder_proc *proc)
+static struct binder_thread *binder_get_thread(struct binder_proc *proc,
+					       bool create)
 {
-	struct binder_thread *thread = NULL;
+	struct binder_thread *thread;
 	struct rb_node *parent = NULL;
 	struct rb_node **p = &proc->threads.rb_node;
 
@@ -2650,22 +2651,26 @@ static struct binder_thread *binder_get_thread(struct binder_proc *proc)
 		else if (current->pid > thread->pid)
 			p = &(*p)->rb_right;
 		else
-			break;
+			return thread;
 	}
-	if (*p == NULL) {
-		thread = kzalloc_preempt_disabled(sizeof(*thread));
-		if (thread == NULL)
-			return NULL;
-		binder_stats_created(BINDER_STAT_THREAD);
-		thread->proc = proc;
-		thread->pid = current->pid;
-		init_waitqueue_head(&thread->wait);
-		INIT_LIST_HEAD(&thread->todo);
-		rb_link_node(&thread->rb_node, parent, p);
-		rb_insert_color(&thread->rb_node, &proc->threads);
-		thread->return_error = BR_OK;
-		thread->return_error2 = BR_OK;
-	}
+
+	if (!create)
+		return NULL;
+
+	thread = kzalloc_preempt_disabled(sizeof(*thread));
+	if (!thread)
+		return NULL;
+
+	binder_stats_created(BINDER_STAT_THREAD);
+	thread->proc = proc;
+	thread->pid = current->pid;
+	init_waitqueue_head(&thread->wait);
+	INIT_LIST_HEAD(&thread->todo);
+	rb_link_node(&thread->rb_node, parent, p);
+	rb_insert_color(&thread->rb_node, &proc->threads);
+	thread->return_error = BR_OK;
+	thread->return_error2 = BR_OK;
+
 	return thread;
 }
 
@@ -2716,7 +2721,7 @@ static int binder_free_current_thread(struct binder_proc *proc)
 
 	binder_lock(__func__);
 
-	thread = binder_get_thread(proc);
+	thread = binder_get_thread(proc, false);
 	if (thread) {
 		binder_debug(BINDER_DEBUG_THREADS, "%d:%d exit\n",
 			     proc->pid, thread->pid);
@@ -2737,7 +2742,7 @@ static unsigned int binder_poll(struct file *filp,
 
 	binder_lock(__func__);
 
-	thread = binder_get_thread(proc);
+	thread = binder_get_thread(proc, true);
 	if (thread) {
 		thread->looper &= ~BINDER_LOOPER_STATE_NEED_RETURN;
 		wait_for_proc_work = thread->transaction_stack == NULL &&
@@ -2783,7 +2788,7 @@ static int binder_ioctl_write_read(struct binder_proc *proc,
 
 	binder_lock(__func__);
 
-	thread = binder_get_thread(proc);
+	thread = binder_get_thread(proc, true);
 	if (!thread) {
 		ret = -ENOMEM;
 		goto out;

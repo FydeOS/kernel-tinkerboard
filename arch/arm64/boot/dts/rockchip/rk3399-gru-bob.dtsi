@@ -135,7 +135,7 @@
 };
 
 &target {
-	temperature = <80000>;
+	temperature = <70000>;
 };
 
 &threshold {

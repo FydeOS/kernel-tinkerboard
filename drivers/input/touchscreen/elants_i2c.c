@@ -1402,6 +1402,15 @@ static int __maybe_unused elants_i2c_resume(struct device *dev)
 	}
 
 	ts->state = ELAN_STATE_NORMAL;
+
+	/*
+	 * FIXME: Clear interrupts by reading data from the chip.
+	 * The kernel is supposed to replay edge-triggered interrupts
+	 * when we enable them, but this does not seem to happen
+	 * on some devices.
+	 */
+	(void) i2c_master_recv(client, ts->buf, sizeof(ts->buf));
+
 	enable_irq(client->irq);
 
 	return 0;

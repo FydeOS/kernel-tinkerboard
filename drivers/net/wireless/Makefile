@@ -27,3 +27,5 @@ obj-$(CONFIG_USB_NET_RNDIS_WLAN)	+= rndis_wlan.o
 
 obj-$(CONFIG_MAC80211_HWSIM)	+= mac80211_hwsim.o
 obj-$(CONFIG_AR10K) += ar10k/
+
+obj-$(CONFIG_WL_ROCKCHIP)	+= rockchip_wlan/

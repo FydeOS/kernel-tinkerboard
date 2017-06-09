@@ -485,8 +485,6 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <0x2b>;
 		status = "okay";
-		linux,phandle = <0x77>;
-		phandle = <0x77>;
 	};
 
 	serial@ff180000 {
@@ -1559,7 +1557,6 @@
 		compatible = "rockchip,rk3288-dw-hdmi";
 		reg = <0xff980000 0x20000>;
 		reg-io-width = <0x4>;
-		ddc-i2c-bus = <0x77>;
 		rockchip,grf = <0xb>;
 		interrupts = <0x0 0x67 0x4>;
 		clocks = <0x7 0x168 0x7 0x6d>;
@@ -1569,6 +1566,8 @@
 		#address-cells = <0x1>;
 		#size-cells = <0x0>;
 		#sound-dai-cells = <0x0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <0x77>;
 		linux,phandle = <0x8c>;
 		phandle = <0x8c>;
 
@@ -1898,6 +1897,8 @@
 
 			hdmi-ddc {
 				rockchip,pins = <0x7 0x13 0x2 0x7d 0x7 0x14 0x2 0x7d>;
+				linux,phandle = <0x77>;
+				phandle = <0x77>;
 			};
 		};
 

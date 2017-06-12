@@ -484,7 +484,7 @@
 		clocks = <0x7 0x151>;
 		pinctrl-names = "default";
 		pinctrl-0 = <0x2b>;
-		status = "okay";
+		status = "disabled";
 	};
 
 	serial@ff180000 {

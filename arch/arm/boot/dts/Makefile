@@ -524,7 +524,8 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += \
 	rk3288-firefly-beta.dtb \
 	rk3288-firefly.dtb \
 	rk3288-miniarm.dtb \
-	rk3288-miniarm-ddc.dtb \
+	rk3288-miniarm-hdmi-ddc.dtb \
+	rk3288-miniarm-i2c5-ddc.dtb \
 	rk3288-popmetal.dtb \
 	rk3288-r89.dtb \
 	rk3288-rock2-square.dtb \

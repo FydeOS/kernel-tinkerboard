@@ -45,15 +45,10 @@
 	pinctrl-0 = <&hdmi_ddc>;
 };
 
-&pinctrl {
-	hdmi {
-		hdmi_ddc: hdmi-ddc {
-			status = "okay";
-		};
-	};
+&hdmi_ddc {
+	status = "okay";
 };
 
 &i2c5 {
 	status = "disabled";
 };
-

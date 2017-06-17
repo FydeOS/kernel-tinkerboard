@@ -253,12 +253,8 @@
 	};
 };
 
-&pinctrl {
-	hdmi {
-		hdmi_ddc: hdmi-ddc {
-			status = "disabled";
-		};
-	};
+&hdmi_ddc {
+	status = "disabled";
 };
 
 &i2c0 {

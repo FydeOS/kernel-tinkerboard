@@ -1,6 +1,6 @@
 /*
  *
- * (C) COPYRIGHT 2011-2016 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2011-2017 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -33,7 +33,9 @@
 #include <mali_kbase_mem_lowlevel.h>
 #include <mali_kbase_mmu_hw.h>
 #include <mali_kbase_mmu_mode.h>
-#include <mali_kbase_instr.h>
+#include <mali_kbase_instr_defs.h>
+#include <mali_kbase_pm.h>
+#include <protected_mode_switcher.h>
 
 #include <linux/atomic.h>
 #include <linux/mempool.h>
@@ -49,21 +51,19 @@
 #include <linux/kds.h>
 #endif				/* CONFIG_KDS */
 
-#ifdef CONFIG_DRM_DMA_SYNC
-#include <drm/drm_sync_helper.h>
-#endif				/* CONFIG_DRM_DMA_SYNC */
-
-#ifdef CONFIG_SYNC
-#include "sync.h"
-#endif				/* CONFIG_SYNC */
+#if defined(CONFIG_SYNC)
+#include <sync.h>
+#else
+#include "mali_kbase_fence_defs.h"
+#endif
 
 #ifdef CONFIG_DEBUG_FS
 #include <linux/debugfs.h>
 #endif				/* CONFIG_DEBUG_FS */
 
-#ifdef CONFIG_PM_DEVFREQ
+#ifdef CONFIG_MALI_DEVFREQ
 #include <linux/devfreq.h>
-#endif /* CONFIG_DEVFREQ */
+#endif /* CONFIG_MALI_DEVFREQ */
 
 #include <linux/clk.h>
 #include <linux/regulator/consumer.h>
@@ -180,20 +180,18 @@
 #define KBASE_KATOM_FLAG_BEEN_HARD_STOPPED (1<<4)
 /** Atom has caused us to enter disjoint state */
 #define KBASE_KATOM_FLAG_IN_DISJOINT (1<<5)
-/* Atom has fail dependency on same-slot dependency */
-#define KBASE_KATOM_FLAG_FAIL_PREV (1<<6)
 /* Atom blocked on cross-slot dependency */
 #define KBASE_KATOM_FLAG_X_DEP_BLOCKED (1<<7)
 /* Atom has fail dependency on cross-slot dependency */
 #define KBASE_KATOM_FLAG_FAIL_BLOCKER (1<<8)
-/* Atom has been submitted to JSCTX ringbuffers */
-#define KBASE_KATOM_FLAG_JSCTX_RB_SUBMITTED (1<<9)
+/* Atom is currently in the list of atoms blocked on cross-slot dependencies */
+#define KBASE_KATOM_FLAG_JSCTX_IN_X_DEP_LIST (1<<9)
 /* Atom is currently holding a context reference */
 #define KBASE_KATOM_FLAG_HOLDING_CTX_REF (1<<10)
-/* Atom requires GPU to be in secure mode */
-#define KBASE_KATOM_FLAG_SECURE (1<<11)
-/* Atom has been stored in linked list */
-#define KBASE_KATOM_FLAG_JSCTX_IN_LL (1<<12)
+/* Atom requires GPU to be in protected mode */
+#define KBASE_KATOM_FLAG_PROTECTED (1<<11)
+/* Atom has been stored in runnable_tree */
+#define KBASE_KATOM_FLAG_JSCTX_IN_TREE (1<<12)
 
 /* SW related flags about types of JS_COMMAND action
  * NOTE: These must be masked off by JS_COMMAND_MASK */
@@ -215,6 +213,13 @@
 
 #define KBASEP_ATOM_ID_INVALID BASE_JD_ATOM_COUNT
 
+/* Serialize atoms within a slot (ie only one atom per job slot) */
+#define KBASE_SERIALIZE_INTRA_SLOT (1 << 0)
+/* Serialize atoms between slots (ie only one job slot running at any time) */
+#define KBASE_SERIALIZE_INTER_SLOT (1 << 1)
+/* Reset the GPU after each atom completion */
+#define KBASE_SERIALIZE_RESET (1 << 2)
+
 #ifdef CONFIG_DEBUG_FS
 struct base_job_fault_event {
 
@@ -233,6 +238,39 @@ struct kbase_jd_atom_dependency {
 };
 
 /**
+ * struct kbase_io_access - holds information about 1 register access
+ *
+ * @addr: first bit indicates r/w (r=0, w=1)
+ * @value: value written or read
+ */
+struct kbase_io_access {
+	uintptr_t addr;
+	u32 value;
+};
+
+/**
+ * struct kbase_io_history - keeps track of all recent register accesses
+ *
+ * @enabled: true if register accesses are recorded, false otherwise
+ * @lock: spinlock protecting kbase_io_access array
+ * @count: number of registers read/written
+ * @size: number of elements in kbase_io_access array
+ * @buf: array of kbase_io_access
+ */
+struct kbase_io_history {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0))
+	bool enabled;
+#else
+	u32 enabled;
+#endif
+
+	spinlock_t lock;
+	size_t count;
+	u16 size;
+	struct kbase_io_access *buf;
+};
+
+/**
  * @brief The function retrieves a read-only reference to the atom field from
  * the  kbase_jd_atom_dependency structure
  *
@@ -240,11 +278,11 @@ struct kbase_jd_atom_dependency {
  *
  * @return readonly reference to dependent ATOM.
  */
-static inline const struct kbase_jd_atom *const kbase_jd_katom_dep_atom(const struct kbase_jd_atom_dependency *dep)
+static inline const struct kbase_jd_atom * kbase_jd_katom_dep_atom(const struct kbase_jd_atom_dependency *dep)
 {
 	LOCAL_ASSERT(dep != NULL);
 
-	return (const struct kbase_jd_atom * const)(dep->atom);
+	return (const struct kbase_jd_atom *)(dep->atom);
 }
 
 /**
@@ -255,7 +293,7 @@ static inline const struct kbase_jd_atom *const kbase_jd_katom_dep_atom(const st
  *
  * @return A dependency type value.
  */
-static inline const u8 kbase_jd_katom_dep_type(const struct kbase_jd_atom_dependency *dep)
+static inline u8 kbase_jd_katom_dep_type(const struct kbase_jd_atom_dependency *dep)
 {
 	LOCAL_ASSERT(dep != NULL);
 
@@ -306,20 +344,62 @@ enum kbase_atom_gpu_rb_state {
 	KBASE_ATOM_GPU_RB_NOT_IN_SLOT_RB,
 	/* Atom is in slot ringbuffer but is blocked on a previous atom */
 	KBASE_ATOM_GPU_RB_WAITING_BLOCKED,
+	/* Atom is in slot ringbuffer but is waiting for a previous protected
+	 * mode transition to complete */
+	KBASE_ATOM_GPU_RB_WAITING_PROTECTED_MODE_PREV,
+	/* Atom is in slot ringbuffer but is waiting for proected mode
+	 * transition */
+	KBASE_ATOM_GPU_RB_WAITING_PROTECTED_MODE_TRANSITION,
 	/* Atom is in slot ringbuffer but is waiting for cores to become
 	 * available */
 	KBASE_ATOM_GPU_RB_WAITING_FOR_CORE_AVAILABLE,
 	/* Atom is in slot ringbuffer but is blocked on affinity */
 	KBASE_ATOM_GPU_RB_WAITING_AFFINITY,
-	/* Atom is in slot ringbuffer but is waiting for secure mode switch */
-	KBASE_ATOM_GPU_RB_WAITING_SECURE_MODE,
 	/* Atom is in slot ringbuffer and ready to run */
 	KBASE_ATOM_GPU_RB_READY,
 	/* Atom is in slot ringbuffer and has been submitted to the GPU */
 	KBASE_ATOM_GPU_RB_SUBMITTED,
 	/* Atom must be returned to JS as soon as it reaches the head of the
 	 * ringbuffer due to a previous failure */
-	KBASE_ATOM_GPU_RB_RETURN_TO_JS
+	KBASE_ATOM_GPU_RB_RETURN_TO_JS = -1
+};
+
+enum kbase_atom_enter_protected_state {
+	/*
+	 * Starting state:
+	 * Check if a transition into protected mode is required.
+	 *
+	 * NOTE: The integer value of this must
+	 *       match KBASE_ATOM_EXIT_PROTECTED_CHECK.
+	 */
+	KBASE_ATOM_ENTER_PROTECTED_CHECK = 0,
+	/* Wait for vinstr to suspend. */
+	KBASE_ATOM_ENTER_PROTECTED_VINSTR,
+	/* Wait for the L2 to become idle in preparation for
+	 * the coherency change. */
+	KBASE_ATOM_ENTER_PROTECTED_IDLE_L2,
+	/* End state;
+	 * Prepare coherency change. */
+	KBASE_ATOM_ENTER_PROTECTED_FINISHED,
+};
+
+enum kbase_atom_exit_protected_state {
+	/*
+	 * Starting state:
+	 * Check if a transition out of protected mode is required.
+	 *
+	 * NOTE: The integer value of this must
+	 *       match KBASE_ATOM_ENTER_PROTECTED_CHECK.
+	 */
+	KBASE_ATOM_EXIT_PROTECTED_CHECK = 0,
+	/* Wait for the L2 to become idle in preparation
+	 * for the reset. */
+	KBASE_ATOM_EXIT_PROTECTED_IDLE_L2,
+	/* Issue the protected reset. */
+	KBASE_ATOM_EXIT_PROTECTED_RESET,
+	/* End state;
+	 * Wait for the reset to complete. */
+	KBASE_ATOM_EXIT_PROTECTED_RESET_WAIT,
 };
 
 struct kbase_ext_res {
@@ -330,7 +410,6 @@ struct kbase_ext_res {
 struct kbase_jd_atom {
 	struct work_struct work;
 	ktime_t start_timestamp;
-	u64 time_spent_us; /**< Total time spent on the GPU in microseconds */
 
 	struct base_jd_udata udata;
 	struct kbase_context *kctx;
@@ -338,6 +417,13 @@ struct kbase_jd_atom {
 	struct list_head dep_head[2];
 	struct list_head dep_item[2];
 	const struct kbase_jd_atom_dependency dep[2];
+	/* List head used during job dispatch job_done processing - as
+	 * dependencies may not be entirely resolved at this point, we need to
+	 * use a separate list head. */
+	struct list_head jd_item;
+	/* true if atom's jd_item is currently on a list. Prevents atom being
+	 * processed twice. */
+	bool in_jd_list;
 
 	u16 nr_extres;
 	struct kbase_ext_res *extres;
@@ -346,21 +432,83 @@ struct kbase_jd_atom {
 	u64 affinity;
 	u64 jc;
 	enum kbase_atom_coreref_state coreref_state;
-#if defined(CONFIG_KDS) || defined(CONFIG_DRM_DMA_SYNC)
-	struct list_head node;
-	bool dep_satisfied;
-#endif				/* CONFIG_KDS or CONFIG_DRM_DMA_SYNC */
 #ifdef CONFIG_KDS
+	struct list_head node;
 	struct kds_resource_set *kds_rset;
+	bool kds_dep_satisfied;
 #endif				/* CONFIG_KDS */
-#ifdef CONFIG_DRM_DMA_SYNC
-	struct drm_reservation_cb rcb;
-	struct fence *rendered_fence;
-#endif				/* CONFIG_DRM_DMA_SYNC */
-#ifdef CONFIG_SYNC
+#if defined(CONFIG_SYNC)
+	/* Stores either an input or output fence, depending on soft-job type */
 	struct sync_fence *fence;
 	struct sync_fence_waiter sync_waiter;
 #endif				/* CONFIG_SYNC */
+#if defined(CONFIG_MALI_DMA_FENCE) || defined(CONFIG_SYNC_FILE)
+	struct {
+		/* Use the functions/API defined in mali_kbase_fence.h to
+		 * when working with this sub struct */
+#if defined(CONFIG_SYNC_FILE)
+		/* Input fence */
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0))
+		struct fence *fence_in;
+#else
+		struct dma_fence *fence_in;
+#endif
+#endif
+		/* This points to the dma-buf output fence for this atom. If
+		 * this is NULL then there is no fence for this atom and the
+		 * following fields related to dma_fence may have invalid data.
+		 *
+		 * The context and seqno fields contain the details for this
+		 * fence.
+		 *
+		 * This fence is signaled when the katom is completed,
+		 * regardless of the event_code of the katom (signal also on
+		 * failure).
+		 */
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0))
+		struct fence *fence;
+#else
+		struct dma_fence *fence;
+#endif
+		/* The dma-buf fence context number for this atom. A unique
+		 * context number is allocated to each katom in the context on
+		 * context creation.
+		 */
+		unsigned int context;
+		/* The dma-buf fence sequence number for this atom. This is
+		 * increased every time this katom uses dma-buf fence.
+		 */
+		atomic_t seqno;
+		/* This contains a list of all callbacks set up to wait on
+		 * other fences.  This atom must be held back from JS until all
+		 * these callbacks have been called and dep_count have reached
+		 * 0. The initial value of dep_count must be equal to the
+		 * number of callbacks on this list.
+		 *
+		 * This list is protected by jctx.lock. Callbacks are added to
+		 * this list when the atom is built and the wait are set up.
+		 * All the callbacks then stay on the list until all callbacks
+		 * have been called and the atom is queued, or cancelled, and
+		 * then all callbacks are taken off the list and freed.
+		 */
+		struct list_head callbacks;
+		/* Atomic counter of number of outstandind dma-buf fence
+		 * dependencies for this atom. When dep_count reaches 0 the
+		 * atom may be queued.
+		 *
+		 * The special value "-1" may only be set after the count
+		 * reaches 0, while holding jctx.lock. This indicates that the
+		 * atom has been handled, either queued in JS or cancelled.
+		 *
+		 * If anyone but the dma-fence worker sets this to -1 they must
+		 * ensure that any potentially queued worker must have
+		 * completed before allowing the atom to be marked as unused.
+		 * This can be done by flushing the fence work queue:
+		 * kctx->dma_fence.wq.
+		 */
+		atomic_t dep_count;
+	} dma_fence;
+#endif /* CONFIG_MALI_DMA_FENCE || CONFIG_SYNC_FILE*/
 
 	/* Note: refer to kbasep_js_atom_retained_state, which will take a copy of some of the following members */
 	enum base_jd_event_code event_code;
@@ -370,7 +518,7 @@ struct kbase_jd_atom {
 	 * NOTE: see if this can be unified into the another member e.g. the event */
 	int retry_submit_on_slot;
 
-	union kbasep_js_policy_job_info sched_info;
+	u32 ticks;
 	/* JS atom priority with respect to other atoms on its kctx. */
 	int sched_priority;
 
@@ -396,6 +544,11 @@ struct kbase_jd_atom {
 
 	atomic_t blocked;
 
+	/* Pointer to atom that this atom has same-slot dependency on */
+	struct kbase_jd_atom *pre_dep;
+	/* Pointer to atom that has same-slot dependency on this atom */
+	struct kbase_jd_atom *post_dep;
+
 	/* Pointer to atom that this atom has cross-slot dependency on */
 	struct kbase_jd_atom *x_pre_dep;
 	/* Pointer to atom that has cross-slot dependency on this atom */
@@ -410,18 +563,40 @@ struct kbase_jd_atom {
 	struct base_job_fault_event fault_event;
 #endif
 
+	/* List head used for three different purposes:
+	 *  1. Overflow list for JS ring buffers. If an atom is ready to run,
+	 *     but there is no room in the JS ring buffer, then the atom is put
+	 *     on the ring buffer's overflow list using this list node.
+	 *  2. List of waiting soft jobs.
+	 */
 	struct list_head queue;
 
-	struct kbase_va_region *jit_addr_reg;
+	/* Used to keep track of all JIT free/alloc jobs in submission order
+	 */
+	struct list_head jit_node;
+	bool jit_blocked;
 
 	/* If non-zero, this indicates that the atom will fail with the set
 	 * event_code when the atom is processed. */
 	enum base_jd_event_code will_fail_event_code;
+
+	/* Atoms will only ever be transitioning into, or out of
+	 * protected mode so we do not need two separate fields.
+	 */
+	union {
+		enum kbase_atom_enter_protected_state enter;
+		enum kbase_atom_exit_protected_state exit;
+	} protected_state;
+
+	struct rb_node runnable_tree_node;
+
+	/* 'Age' of atom relative to other atoms in the context. */
+	u32 age;
 };
 
-static inline bool kbase_jd_katom_is_secure(const struct kbase_jd_atom *katom)
+static inline bool kbase_jd_katom_is_protected(const struct kbase_jd_atom *katom)
 {
-	return (bool)(katom->atom_flags & KBASE_KATOM_FLAG_SECURE);
+	return (bool)(katom->atom_flags & KBASE_KATOM_FLAG_PROTECTED);
 }
 
 /*
@@ -454,8 +629,7 @@ struct kbase_jd_context {
 	 * This waitq can be waited upon to find out when the context jobs are all
 	 * done/cancelled (including those that might've been blocked on
 	 * dependencies) - and so, whether it can be terminated. However, it should
-	 * only be terminated once it is neither present in the policy-queue (see
-	 * kbasep_js_policy_try_evict_ctx() ) nor the run-pool (see
+	 * only be terminated once it is not present in the run-pool (see
 	 * kbasep_js_kctx_info::ctx::is_scheduled).
 	 *
 	 * Since the waitq is only set under kbase_jd_context::lock,
@@ -475,14 +649,7 @@ struct kbase_jd_context {
 
 #ifdef CONFIG_KDS
 	struct kds_callback kds_cb;
-#endif
-#ifdef CONFIG_DRM_DMA_SYNC
-	unsigned fence_context;
-	atomic_t fence_seqno;
 #endif				/* CONFIG_KDS */
-#if (defined(CONFIG_KDS) || defined(CONFIG_DRM_DMA_SYNC)) && defined(CONFIG_SYNC)
-	bool implicit_sync;
-#endif				/* (CONFIG_KDS or CONFIG_DRM_DMA_SYNC) && CONFIG_SYNC */
 #ifdef CONFIG_GPU_TRACEPOINTS
 	atomic_t work_id;
 #endif
@@ -521,19 +688,19 @@ struct kbase_as {
 	struct work_struct work_pagefault;
 	struct work_struct work_busfault;
 	enum kbase_mmu_fault_type fault_type;
+	bool protected_mode;
 	u32 fault_status;
 	u64 fault_addr;
 	u64 fault_extra_addr;
-	struct mutex transaction_mutex;
 
 	struct kbase_mmu_setup current_setup;
 
 	/* BASE_HW_ISSUE_8316  */
 	struct workqueue_struct *poke_wq;
 	struct work_struct poke_work;
-	/** Protected by kbasep_js_device_data::runpool_irq::lock */
+	/** Protected by hwaccess_lock */
 	int poke_refcount;
-	/** Protected by kbasep_js_device_data::runpool_irq::lock */
+	/** Protected by hwaccess_lock */
 	kbase_as_poke_state poke_state;
 	struct hrtimer poke_timer;
 };
@@ -654,8 +821,7 @@ struct kbase_trace_kbdev_timeline {
 	 * But it's kept as an example of how to add global timeline tracking
 	 * information
 	 *
-	 * The caller must hold kbasep_js_device_data::runpool_irq::lock when
-	 * accessing this */
+	 * The caller must hold hwaccess_lock when accessing this */
 	u8 slot_atoms_submitted[BASE_JM_MAX_NR_SLOTS];
 
 	/* Last UID for each PM event */
@@ -664,7 +830,7 @@ struct kbase_trace_kbdev_timeline {
 	atomic_t pm_event_uid_counter;
 	/*
 	 * L2 transition state - true indicates that the transition is ongoing
-	 * Expected to be protected by pm.power_change_lock */
+	 * Expected to be protected by hwaccess_lock */
 	bool l2_transitioning;
 };
 #endif /* CONFIG_MALI_TRACE_TIMELINE */
@@ -706,19 +872,6 @@ struct kbase_pm_device_data {
 	u64 debug_core_mask_all;
 
 	/**
-	 * Lock protecting the power state of the device.
-	 *
-	 * This lock must be held when accessing the shader_available_bitmap,
-	 * tiler_available_bitmap, l2_available_bitmap, shader_inuse_bitmap and
-	 * tiler_inuse_bitmap fields of kbase_device, and the ca_in_transition
-	 * and shader_poweroff_pending fields of kbase_pm_device_data. It is
-	 * also held when the hardware power registers are being written to, to
-	 * ensure that two threads do not conflict over the power transitions
-	 * that the hardware should make.
-	 */
-	spinlock_t power_change_lock;
-
-	/**
 	 * Callback for initializing the runtime power management.
 	 *
 	 * @param kbdev The kbase device
@@ -750,31 +903,6 @@ struct kbase_pm_device_data {
 };
 
 /**
- * struct kbase_secure_ops - Platform specific functions for GPU secure mode
- * operations
- * @secure_mode_enable:  Callback to enable secure mode on the GPU
- * @secure_mode_disable: Callback to disable secure mode on the GPU
- */
-struct kbase_secure_ops {
-	/**
-	 * secure_mode_enable() - Enable secure mode on the GPU
-	 * @kbdev:	The kbase device
-	 *
-	 * Return: 0 on success, non-zero on error
-	 */
-	int (*secure_mode_enable)(struct kbase_device *kbdev);
-
-	/**
-	 * secure_mode_disable() - Disable secure mode on the GPU
-	 * @kbdev:	The kbase device
-	 *
-	 * Return: 0 on success, non-zero on error
-	 */
-	int (*secure_mode_disable)(struct kbase_device *kbdev);
-};
-
-
-/**
  * struct kbase_mem_pool - Page based memory pool for kctx/kbdev
  * @kbdev:     Kbase device where memory is used
  * @cur_size:  Number of free pages currently in the pool (may exceed @max_size
@@ -799,6 +927,18 @@ struct kbase_mem_pool {
 	struct kbase_mem_pool *next_pool;
 };
 
+/**
+ * struct kbase_devfreq_opp - Lookup table for converting between nominal OPP
+ *                            frequency, and real frequency and core mask
+ * @opp_freq:  Nominal OPP frequency
+ * @real_freq: Real GPU frequency
+ * @core_mask: Shader core mask
+ */
+struct kbase_devfreq_opp {
+	u64 opp_freq;
+	u64 real_freq;
+	u64 core_mask;
+};
 
 #define DEVNAME_SIZE	16
 
@@ -845,6 +985,14 @@ struct kbase_device {
 	struct kbase_mmu_mode const *mmu_mode;
 
 	struct kbase_as as[BASE_MAX_NR_AS];
+	/* The below variables (as_free and as_to_kctx) are managed by the
+	 * Context Scheduler. The kbasep_js_device_data::runpool_irq::lock must
+	 * be held whilst accessing these.
+	 */
+	u16 as_free; /* Bitpattern of free Address Spaces */
+	/* Mapping from active Address Spaces to kbase_context */
+	struct kbase_context *as_to_kctx[BASE_MAX_NR_AS];
+
 
 	spinlock_t mmu_mask_change;
 
@@ -900,6 +1048,7 @@ struct kbase_device {
 	u64 shader_available_bitmap;
 	u64 tiler_available_bitmap;
 	u64 l2_available_bitmap;
+	u64 stack_available_bitmap;
 
 	u64 shader_ready_bitmap;
 	u64 shader_transitioning_bitmap;
@@ -915,16 +1064,10 @@ struct kbase_device {
 		struct kbase_context *kctx;
 		u64 addr;
 
-		struct kbase_context *suspended_kctx;
-		struct kbase_uk_hwcnt_setup suspended_state;
-
 		struct kbase_instr_backend backend;
 	} hwcnt;
 
 	struct kbase_vinstr_context *vinstr_ctx;
-
-	/*value to be written to the irq_throttle register each time an irq is served */
-	atomic_t irq_throttle_cycles;
 
 #if KBASE_TRACE_ENABLE
 	spinlock_t              trace_lock;
@@ -932,30 +1075,6 @@ struct kbase_device {
 	u16                     trace_next_in;
 	struct kbase_trace            *trace_rbuf;
 #endif
-
-	/* This is used to override the current job scheduler values for
-	 * JS_SCHEDULING_PERIOD_NS
-	 * JS_SOFT_STOP_TICKS
-	 * JS_SOFT_STOP_TICKS_CL
-	 * JS_HARD_STOP_TICKS_SS
-	 * JS_HARD_STOP_TICKS_CL
-	 * JS_HARD_STOP_TICKS_DUMPING
-	 * JS_RESET_TICKS_SS
-	 * JS_RESET_TICKS_CL
-	 * JS_RESET_TICKS_DUMPING.
-	 *
-	 * These values are set via the js_timeouts sysfs file.
-	 */
-	u32 js_scheduling_period_ns;
-	int js_soft_stop_ticks;
-	int js_soft_stop_ticks_cl;
-	int js_hard_stop_ticks_ss;
-	int js_hard_stop_ticks_cl;
-	int js_hard_stop_ticks_dumping;
-	int js_reset_ticks_ss;
-	int js_reset_ticks_cl;
-	int js_reset_ticks_dumping;
-	bool js_timeouts_updated;
 
 	u32 reset_timeout_ms;
 
@@ -968,17 +1087,32 @@ struct kbase_device {
 	struct list_head        kctx_list;
 	struct mutex            kctx_list_lock;
 
-#ifdef CONFIG_PM_DEVFREQ
+#ifdef CONFIG_MALI_DEVFREQ
 	struct devfreq_dev_profile devfreq_profile;
 	struct devfreq *devfreq;
 	unsigned long current_freq;
+	unsigned long current_nominal_freq;
 	unsigned long current_voltage;
+	u64 current_core_mask;
+	struct kbase_devfreq_opp *opp_table;
+	int num_opps;
 #ifdef CONFIG_DEVFREQ_THERMAL
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)
+	struct devfreq_cooling_device *devfreq_cooling;
+#else
 	struct thermal_cooling_device *devfreq_cooling;
 #endif
-#endif
+	/* Current IPA model - true for configured model, false for fallback */
+	atomic_t ipa_use_configured_model;
+	struct {
+		/* Access to this struct must be with ipa.lock held */
+		struct mutex lock;
+		struct kbase_ipa_model *configured_model;
+		struct kbase_ipa_model *fallback_model;
+	} ipa;
+#endif /* CONFIG_DEVFREQ_THERMAL */
+#endif /* CONFIG_MALI_DEVFREQ */
 
-	struct kbase_ipa_context *ipa_ctx;
 
 #ifdef CONFIG_MALI_TRACE_TIMELINE
 	struct kbase_trace_kbdev_timeline timeline;
@@ -995,6 +1129,11 @@ struct kbase_device {
 	struct dentry *mali_debugfs_directory;
 	/* Root directory for per context entry */
 	struct dentry *debugfs_ctx_directory;
+
+#ifdef CONFIG_MALI_DEBUG
+	/* bit for each as, set if there is new data to report */
+	u64 debugfs_as_read_bitmap;
+#endif /* CONFIG_MALI_DEBUG */
 
 	/* failed job dump, used for separate debug process */
 	wait_queue_head_t job_fault_wq;
@@ -1037,6 +1176,11 @@ struct kbase_device {
 	/* Total number of created contexts */
 	atomic_t ctx_num;
 
+#ifdef CONFIG_DEBUG_FS
+	/* Holds the most recent register accesses */
+	struct kbase_io_history io_history;
+#endif /* CONFIG_DEBUG_FS */
+
 	struct kbase_hwaccess_data hwaccess;
 
 	/* Count of page/bus faults waiting for workqueues to process */
@@ -1054,6 +1198,8 @@ struct kbase_device {
 #endif
 	size_t mem_pool_max_size_default;
 
+	/* current gpu coherency mode */
+	u32 current_gpu_coherency_mode;
 	/* system coherency mode  */
 	u32 system_coherency;
 	/* Flag to track when cci snoops have been enabled on the interface */
@@ -1065,18 +1211,26 @@ struct kbase_device {
 	u32 snoop_enable_smc;
 	u32 snoop_disable_smc;
 
-	/* Secure operations */
-	struct kbase_secure_ops *secure_ops;
+	/* Protected mode operations */
+	struct protected_mode_ops *protected_ops;
+
+	/* Protected device attached to this kbase device */
+	struct protected_mode_device *protected_dev;
 
 	/*
-	 * true when GPU is put into secure mode
+	 * true when GPU is put into protected mode
 	 */
-	bool secure_mode;
+	bool protected_mode;
 
 	/*
-	 * true if secure mode is supported
+	 * true when GPU is transitioning into or out of protected mode
 	 */
-	bool secure_mode_support;
+	bool protected_mode_transition;
+
+	/*
+	 * true if protected mode is supported
+	 */
+	bool protected_mode_support;
 
 
 #ifdef CONFIG_MALI_DEBUG
@@ -1093,90 +1247,88 @@ struct kbase_device {
 	/* Boolean indicating if an IRQ flush during reset is in progress. */
 	bool irq_reset_flush;
 
-	struct notifier_block gpu_trans_nb;
-	unsigned int gpu_limit_freq;
-	unsigned int cpu_limit_freq;
-
 	/* list of inited sub systems. Used during terminate/error recovery */
 	u32 inited_subsys;
-};
 
-/* JSCTX ringbuffer size will always be a power of 2. The idx shift must be:
-   - >=2 (buffer size -> 4)
-   - <= 9 (buffer size 2^(9-1)=256) (technically, 10 works for the ringbuffer
-				but this is unnecessary as max atoms is 256)
- */
-#define JSCTX_RB_IDX_SHIFT (8U)
-#if ((JSCTX_RB_IDX_SHIFT < 2) || ((3 * JSCTX_RB_IDX_SHIFT) >= 32))
-#error "Invalid ring buffer size for 32bit atomic."
-#endif
-#define JSCTX_RB_SIZE (1U << (JSCTX_RB_IDX_SHIFT - 1U)) /* 1 bit for overflow */
-#define JSCTX_RB_SIZE_STORE (1U << JSCTX_RB_IDX_SHIFT)
-#define JSCTX_RB_MASK (JSCTX_RB_SIZE - 1U)
-#define JSCTX_RB_MASK_STORE (JSCTX_RB_SIZE_STORE - 1U)
+	spinlock_t hwaccess_lock;
 
-#define JSCTX_WR_OFFSET         (0U)
-#define JSCTX_RN_OFFSET         (JSCTX_WR_OFFSET   + JSCTX_RB_IDX_SHIFT)
-#define JSCTX_RD_OFFSET         (JSCTX_RN_OFFSET + JSCTX_RB_IDX_SHIFT)
+	/* Protects access to MMU operations */
+	struct mutex mmu_hw_mutex;
 
-/**
- * struct jsctx_rb_entry - Ringbuffer entry in &struct jsctx_queue.
- * @atom_id: Atom ID
- */
-struct jsctx_rb_entry {
-	u16 atom_id;
+	/* Current serialization mode. See KBASE_SERIALIZE_* for details */
+	u8 serialize_jobs;
 };
 
 /**
- * struct jsctx_queue - JS context atom queue, containing both ring buffer and linked list.
- * @entries:     Array of size %JSCTX_RB_SIZE which holds the &struct
- *               kbase_jd_atom pointers which make up the contents of the ring
- *               buffer.
- * @indicies:    An atomic variable containing indicies for the ring buffer.
- *               Indicies are of size JSCTX_RB_IDX_SHIFT.
- *               The following are contained:
- *                - WR_IDX - Write index. Index of the NEXT slot to be written.
- *                - RN_IDX - Running index. Index of the tail of the list.
- *                           This is the atom that has been running the longest.
- *                - RD_IDX - Read index. Index of the next atom to be pulled.
- * @queue_head:  Head item of the linked list queue.
+ * struct jsctx_queue - JS context atom queue
+ * @runnable_tree: Root of RB-tree containing currently runnable atoms on this
+ *                 job slot.
+ * @x_dep_head:    Head item of the linked list of atoms blocked on cross-slot
+ *                 dependencies. Atoms on this list will be moved to the
+ *                 runnable_tree when the blocking atom completes.
  *
- * Locking:
- * The linked list assumes jctx.lock is held.
- * The ringbuffer serves as an intermediary between irq context and non-irq
- * context, without the need for the two to share any lock. irq context can
- * pull (and unpull) and only requires the runpool_irq.lock. While non-irq
- * context can add and remove and only requires holding only jctx.lock.
- * Error handling affecting both, or the whole ringbuffer in general, must
- * hold both locks or otherwise ensure (f.ex deschedule/kill) only that thread
- * is accessing the buffer.
- * This means that RD_IDX is updated by irq-context (pull and unpull) and must
- * hold runpool_irq.lock. While WR_IDX (add) and RN_IDX (remove) is updated by
- * non-irq context and must hold jctx.lock.
- * Note that pull (or sister function peek) must also access WR_IDX to ensure
- * there is free space in the buffer, this is ok as WR_IDX is only increased.
- * A similar situation is apparent with unpull and RN_IDX, but only one atom
- * (already pulled) can cause either remove or unpull, so this will never
- * conflict.
- *
- * &struct jsctx_queue is a queue of &struct kbase_jd_atom,
- * part ringbuffer and part linked list.
+ * hwaccess_lock must be held when accessing this structure.
  */
 struct jsctx_queue {
-	struct jsctx_rb_entry entries[JSCTX_RB_SIZE];
-
-	atomic_t indicies;
-
-	struct list_head queue_head;
+	struct rb_root runnable_tree;
+	struct list_head x_dep_head;
 };
-
-
-
 
 
 #define KBASE_API_VERSION(major, minor) ((((major) & 0xFFF) << 20)  | \
 					 (((minor) & 0xFFF) << 8) | \
 					 ((0 & 0xFF) << 0))
+
+/**
+ * enum kbase_context_flags - Flags for kbase contexts
+ *
+ * @KCTX_COMPAT: Set when the context process is a compat process, 32-bit
+ * process on a 64-bit kernel.
+ *
+ * @KCTX_RUNNABLE_REF: Set when context is counted in
+ * kbdev->js_data.nr_contexts_runnable. Must hold queue_mutex when accessing.
+ *
+ * @KCTX_ACTIVE: Set when the context is active.
+ *
+ * @KCTX_PULLED: Set when last kick() caused atoms to be pulled from this
+ * context.
+ *
+ * @KCTX_MEM_PROFILE_INITIALIZED: Set when the context's memory profile has been
+ * initialized.
+ *
+ * @KCTX_INFINITE_CACHE: Set when infinite cache is to be enabled for new
+ * allocations. Existing allocations will not change.
+ *
+ * @KCTX_SUBMIT_DISABLED: Set to prevent context from submitting any jobs.
+ *
+ * @KCTX_PRIVILEGED:Set if the context uses an address space and should be kept
+ * scheduled in.
+ *
+ * @KCTX_SCHEDULED: Set when the context is scheduled on the Run Pool.
+ * This is only ever updated whilst the jsctx_mutex is held.
+ *
+ * @KCTX_DYING: Set when the context process is in the process of being evicted.
+ *
+ * @KCTX_NO_IMPLICIT_SYNC: Set when explicit Android fences are in use on this
+ * context, to disable use of implicit dma-buf fences. This is used to avoid
+ * potential synchronization deadlocks.
+ *
+ * All members need to be separate bits. This enum is intended for use in a
+ * bitmask where multiple values get OR-ed together.
+ */
+enum kbase_context_flags {
+	KCTX_COMPAT = 1U << 0,
+	KCTX_RUNNABLE_REF = 1U << 1,
+	KCTX_ACTIVE = 1U << 2,
+	KCTX_PULLED = 1U << 3,
+	KCTX_MEM_PROFILE_INITIALIZED = 1U << 4,
+	KCTX_INFINITE_CACHE = 1U << 5,
+	KCTX_SUBMIT_DISABLED = 1U << 6,
+	KCTX_PRIVILEGED = 1U << 7,
+	KCTX_SCHEDULED = 1U << 8,
+	KCTX_DYING = 1U << 9,
+	KCTX_NO_IMPLICIT_SYNC = 1U << 10,
+};
 
 struct kbase_context {
 	struct file *filp;
@@ -1192,7 +1344,7 @@ struct kbase_context {
 	atomic_t event_count;
 	int event_coalesce_count;
 
-	bool is_compat;
+	atomic_t flags;
 
 	atomic_t                setup_complete;
 	atomic_t                setup_in_progress;
@@ -1203,7 +1355,12 @@ struct kbase_context {
 
 	struct mutex            mmu_lock;
 	struct mutex            reg_lock; /* To be converted to a rwlock? */
-	struct rb_root          reg_rbtree; /* Red-Black tree of GPU regions (live regions) */
+	struct rb_root reg_rbtree_same; /* RB tree of GPU (live) regions,
+					 * SAME_VA zone */
+	struct rb_root reg_rbtree_exec; /* RB tree of GPU (live) regions,
+					 * EXEC zone */
+	struct rb_root reg_rbtree_custom; /* RB tree of GPU (live) regions,
+					 * CUSTOM_VA zone */
 
 	unsigned long    cookies;
 	struct kbase_va_region *pending_regions[BITS_PER_LONG];
@@ -1220,25 +1377,37 @@ struct kbase_context {
 
 	struct shrinker         reclaim;
 	struct list_head        evict_list;
-	struct mutex            evict_lock;
 
 	struct list_head waiting_soft_jobs;
 	spinlock_t waiting_soft_jobs_lock;
-#if defined(CONFIG_KDS) || defined(CONFIG_DRM_DMA_SYNC)
-	struct list_head waiting_resource;
+#ifdef CONFIG_KDS
+	struct list_head waiting_kds_resource;
 #endif
+#ifdef CONFIG_MALI_DMA_FENCE
+	struct {
+		struct list_head waiting_resource;
+		struct workqueue_struct *wq;
+	} dma_fence;
+#endif /* CONFIG_MALI_DMA_FENCE */
 	/** This is effectively part of the Run Pool, because it only has a valid
 	 * setting (!=KBASEP_AS_NR_INVALID) whilst the context is scheduled in
 	 *
-	 * The kbasep_js_device_data::runpool_irq::lock must be held whilst accessing
-	 * this.
+	 * The hwaccess_lock must be held whilst accessing this.
 	 *
 	 * If the context relating to this as_nr is required, you must use
 	 * kbasep_js_runpool_retain_ctx() to ensure that the context doesn't disappear
-	 * whilst you're using it. Alternatively, just hold the kbasep_js_device_data::runpool_irq::lock
+	 * whilst you're using it. Alternatively, just hold the hwaccess_lock
 	 * to ensure the context doesn't disappear (but this has restrictions on what other locks
 	 * you can take whilst doing this) */
 	int as_nr;
+
+	/* Keeps track of the number of users of this context. A user can be a
+	 * job that is available for execution, instrumentation needing to 'pin'
+	 * a context for counter collection, etc. If the refcount reaches 0 then
+	 * this context is considered inactive and the previously programmed
+	 * AS might be cleared at any point.
+	 */
+	atomic_t refcount;
 
 	/* NOTE:
 	 *
@@ -1261,8 +1430,7 @@ struct kbase_context {
 	size_t mem_profile_size;
 	/* Mutex guarding memory profile state */
 	struct mutex mem_profile_lock;
-	/* Memory profile file created */
-	bool mem_profile_initialized;
+	/* Memory profile directory under debugfs */
 	struct dentry *kctx_dentry;
 
 	/* for job fault debug */
@@ -1282,20 +1450,17 @@ struct kbase_context {
 	atomic_t atoms_pulled;
 	/* Number of atoms currently pulled from this context, per slot */
 	atomic_t atoms_pulled_slot[BASE_JM_MAX_NR_SLOTS];
-	/* true if last kick() caused atoms to be pulled from this context */
-	bool pulled;
-	/* true if infinite cache is to be enabled for new allocations. Existing
-	 * allocations will not change. bool stored as a u32 per Linux API */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0))
-	bool infinite_cache_active;
-#else
-	u32 infinite_cache_active;
-#endif
+	/* Number of atoms currently pulled from this context, per slot and
+	 * priority. Hold hwaccess_lock when accessing */
+	int atoms_pulled_slot_pri[BASE_JM_MAX_NR_SLOTS][
+			KBASE_JS_ATOM_SCHED_PRIO_COUNT];
+
+	/* true if slot is blocked on the given priority. This will be set on a
+	 * soft-stop */
+	bool blocked_js[BASE_JM_MAX_NR_SLOTS][KBASE_JS_ATOM_SCHED_PRIO_COUNT];
+
 	/* Bitmask of slots that can be pulled from */
 	u32 slots_pullable;
-
-	/* true if address space assignment is pending */
-	bool as_pending;
 
 	/* Backend specific data */
 	struct kbase_context_backend backend;
@@ -1307,30 +1472,39 @@ struct kbase_context {
 	struct kbase_vinstr_client *vinstr_cli;
 	struct mutex vinstr_cli_lock;
 
-	/* Must hold queue_mutex when accessing */
-	bool ctx_active;
-
 	/* List of completed jobs waiting for events to be posted */
 	struct list_head completed_jobs;
 	/* Number of work items currently pending on job_done_wq */
 	atomic_t work_count;
 
-	/* true if context is counted in kbdev->js_data.nr_contexts_runnable */
-	bool ctx_runnable_ref;
-
 	/* Waiting soft-jobs will fail when this timer expires */
-	struct hrtimer soft_event_timeout;
+	struct timer_list soft_job_timeout;
 
 	/* JIT allocation management */
-	struct kbase_va_region *jit_alloc[255];
+	struct kbase_va_region *jit_alloc[256];
 	struct list_head jit_active_head;
 	struct list_head jit_pool_head;
 	struct list_head jit_destroy_head;
-	struct mutex jit_lock;
+	struct mutex jit_evict_lock;
 	struct work_struct jit_work;
+
+	/* A list of the JIT soft-jobs in submission order
+	 * (protected by kbase_jd_context.lock)
+	 */
+	struct list_head jit_atoms_head;
+	/* A list of pending JIT alloc soft-jobs (using the 'queue' list_head)
+	 * (protected by kbase_jd_context.lock)
+	 */
+	struct list_head jit_pending_alloc;
 
 	/* External sticky resource management */
 	struct list_head ext_res_meta_head;
+
+	/* Used to record that a drain was requested from atomic context */
+	atomic_t drain_pending;
+
+	/* Current age count, used to determine age for newly submitted atoms */
+	u32 age_count;
 };
 
 /**
@@ -1386,7 +1560,7 @@ static inline bool kbase_device_is_cpu_coherent(struct kbase_device *kbdev)
 }
 
 /* Conversion helpers for setting up high resolution timers */
-#define HR_TIMER_DELAY_MSEC(x) (ns_to_ktime((x)*1000000U))
+#define HR_TIMER_DELAY_MSEC(x) (ns_to_ktime(((u64)(x))*1000000U))
 #define HR_TIMER_DELAY_NSEC(x) (ns_to_ktime(x))
 
 /* Maximum number of loops polling the GPU for a cache flush before we assume it must have completed */

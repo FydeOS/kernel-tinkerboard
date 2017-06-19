@@ -1,6 +1,6 @@
 /*
  *
- * (C) COPYRIGHT 2014-2015 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2014-2017 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -16,14 +16,12 @@
 
 
 #include <mali_kbase.h>
+#include <mali_kbase_tlstream.h>
 #include <mali_kbase_config_defaults.h>
 #include <backend/gpu/mali_kbase_pm_internal.h>
-#ifdef CONFIG_DEVFREQ_THERMAL
-#include <backend/gpu/mali_kbase_power_model_simple.h>
-#endif
 
+#include <linux/of.h>
 #include <linux/clk.h>
-#include <linux/cpufreq.h>
 #include <linux/devfreq.h>
 #ifdef CONFIG_DEVFREQ_THERMAL
 #include <linux/devfreq_cooling.h>
@@ -42,22 +40,50 @@
 #define dev_pm_opp_get_voltage opp_get_voltage
 #define dev_pm_opp_get_opp_count opp_get_opp_count
 #define dev_pm_opp_find_freq_ceil opp_find_freq_ceil
+#define dev_pm_opp_find_freq_floor opp_find_freq_floor
 #endif /* Linux >= 3.13 */
 
-#define MAX_CLUSTERS	2
+/**
+ * opp_translate - Translate nominal OPP frequency from devicetree into real
+ *                 frequency and core mask
+ * @kbdev:     Device pointer
+ * @freq:      Nominal frequency
+ * @core_mask: Pointer to u64 to store core mask to
+ *
+ * Return: Real target frequency
+ *
+ * This function will only perform translation if an operating-points-v2-mali
+ * table is present in devicetree. If one is not present then it will return an
+ * untranslated frequency and all cores enabled.
+ */
+static unsigned long opp_translate(struct kbase_device *kbdev,
+		unsigned long freq, u64 *core_mask)
+{
+	int i;
 
-static struct cpumask allowed_cpus[MAX_CLUSTERS];
-static unsigned int cpu_max_freq[MAX_CLUSTERS] = {UINT_MAX, UINT_MAX};
-static unsigned int cpu_clipped_freq[MAX_CLUSTERS] = {UINT_MAX, UINT_MAX};
+	for (i = 0; i < kbdev->num_opps; i++) {
+		if (kbdev->opp_table[i].opp_freq == freq) {
+			*core_mask = kbdev->opp_table[i].core_mask;
+			return kbdev->opp_table[i].real_freq;
+		}
+	}
+
+	/* Failed to find OPP - return all cores enabled & nominal frequency */
+	*core_mask = kbdev->gpu_props.props.raw_props.shader_present;
+
+	return freq;
+}
 
 static int
 kbase_devfreq_target(struct device *dev, unsigned long *target_freq, u32 flags)
 {
 	struct kbase_device *kbdev = dev_get_drvdata(dev);
 	struct dev_pm_opp *opp;
+	unsigned long nominal_freq;
 	unsigned long freq = 0;
 	unsigned long voltage;
 	int err;
+	u64 core_mask;
 
 	freq = *target_freq;
 
@@ -70,14 +96,17 @@ kbase_devfreq_target(struct device *dev, unsigned long *target_freq, u32 flags)
 		return PTR_ERR(opp);
 	}
 
+	nominal_freq = freq;
+
 	/*
 	 * Only update if there is a change of frequency
 	 */
-	if (kbdev->current_freq == freq) {
-		*target_freq = freq;
+	if (kbdev->current_nominal_freq == nominal_freq) {
+		*target_freq = nominal_freq;
 		return 0;
 	}
 
+	freq = opp_translate(kbdev, nominal_freq, &core_mask);
 #ifdef CONFIG_REGULATOR
 	if (kbdev->regulator && kbdev->current_voltage != voltage
 			&& kbdev->current_freq < freq) {
@@ -107,9 +136,17 @@ kbase_devfreq_target(struct device *dev, unsigned long *target_freq, u32 flags)
 	}
 #endif
 
-	*target_freq = freq;
+	if (kbdev->pm.backend.ca_current_policy->id ==
+			KBASE_PM_CA_POLICY_ID_DEVFREQ)
+		kbase_devfreq_set_core_mask(kbdev, core_mask);
+
+	*target_freq = nominal_freq;
 	kbdev->current_voltage = voltage;
+	kbdev->current_nominal_freq = nominal_freq;
 	kbdev->current_freq = freq;
+	kbdev->current_core_mask = core_mask;
+
+	KBASE_TLSTREAM_AUX_DEVFREQ_TARGET((u64)nominal_freq);
 
 	kbase_pm_reset_dvfs_utilisation(kbdev);
 
@@ -121,7 +158,7 @@ kbase_devfreq_cur_freq(struct device *dev, unsigned long *freq)
 {
 	struct kbase_device *kbdev = dev_get_drvdata(dev);
 
-	*freq = kbdev->current_freq;
+	*freq = kbdev->current_nominal_freq;
 
 	return 0;
 }
@@ -130,20 +167,13 @@ static int
 kbase_devfreq_status(struct device *dev, struct devfreq_dev_status *stat)
 {
 	struct kbase_device *kbdev = dev_get_drvdata(dev);
-	stat->current_frequency = kbdev->current_freq;
+
+	stat->current_frequency = kbdev->current_nominal_freq;
 
 	kbase_pm_get_dvfs_utilisation(kbdev,
 			&stat->total_time, &stat->busy_time);
 
 	stat->private_data = NULL;
-
-#ifdef CONFIG_DEVFREQ_THERMAL
-	if (kbdev->devfreq_cooling) {
-		struct devfreq *df = kbdev->devfreq;
-
-		memcpy(&df->last_status, stat, sizeof(*stat));
-	}
-#endif
 
 	return 0;
 }
@@ -153,7 +183,7 @@ static int kbase_devfreq_init_freq_table(struct kbase_device *kbdev,
 {
 	int count;
 	int i = 0;
-	unsigned long freq = 0;
+	unsigned long freq;
 	struct dev_pm_opp *opp;
 
 	rcu_read_lock();
@@ -170,8 +200,8 @@ static int kbase_devfreq_init_freq_table(struct kbase_device *kbdev,
 		return -ENOMEM;
 
 	rcu_read_lock();
-	for (i = 0; i < count; i++, freq++) {
-		opp = dev_pm_opp_find_freq_ceil(kbdev->dev, &freq);
+	for (i = 0, freq = ULONG_MAX; i < count; i++, freq--) {
+		opp = dev_pm_opp_find_freq_floor(kbdev->dev, &freq);
 		if (IS_ERR(opp))
 			break;
 
@@ -202,61 +232,78 @@ static void kbase_devfreq_exit(struct device *dev)
 	kbase_devfreq_term_freq_table(kbdev);
 }
 
-static int kbase_devfreq_trans_notifier(struct notifier_block *nb,
-					unsigned long val, void *data)
+static int kbase_devfreq_init_core_mask_table(struct kbase_device *kbdev)
 {
-	struct kbase_device *kbdev = container_of(nb, struct kbase_device,
-						  gpu_trans_nb);
-	struct devfreq_freqs *freqs = data;
-	unsigned int new_rate = (unsigned int)(freqs->new / 1000);
-	int i, cpu;
+	struct device_node *opp_node = of_parse_phandle(kbdev->dev->of_node,
+			"operating-points-v2", 0);
+	struct device_node *node;
+	int i = 0;
+	int count;
 
-	if (!kbdev)
-		goto out;
+	if (!opp_node)
+		return 0;
+	if (!of_device_is_compatible(opp_node, "operating-points-v2-mali"))
+		return 0;
 
-	dev_dbg(kbdev->dev, "%lu-->%lu cpu limit=%u, gpu limit=%u\n",
-		freqs->old, freqs->new,
-		kbdev->cpu_limit_freq,
-		kbdev->gpu_limit_freq);
+	count = dev_pm_opp_get_opp_count(kbdev->dev);
+	kbdev->opp_table = kmalloc_array(count,
+			sizeof(struct kbase_devfreq_opp), GFP_KERNEL);
+	if (!kbdev->opp_table)
+		return -ENOMEM;
 
-	if (val == DEVFREQ_PRECHANGE &&
-	    new_rate >= kbdev->gpu_limit_freq) {
-		for (i = 0; i < MAX_CLUSTERS; i++) {
-			if (cpu_max_freq[i] > kbdev->cpu_limit_freq) {
-				/* change policy->max right now */
-				cpu_clipped_freq[i] = kbdev->cpu_limit_freq;
-				if (cpumask_empty(&allowed_cpus[i]))
-					goto out;
-				cpu = cpumask_any_and(&allowed_cpus[i],
-						      cpu_online_mask);
-				if (cpu >= nr_cpu_ids)
-					goto out;
-				cpufreq_update_policy(cpu);
-			} else {
-				/* avoid someone changing policy->max */
-				cpu_clipped_freq[i] = kbdev->cpu_limit_freq;
+	for_each_available_child_of_node(opp_node, node) {
+		u64 core_mask;
+		u64 opp_freq, real_freq;
+		const void *core_count_p;
+
+		if (of_property_read_u64(node, "opp-hz", &opp_freq)) {
+			dev_warn(kbdev->dev, "OPP is missing required opp-hz property\n");
+			continue;
+		}
+		if (of_property_read_u64(node, "opp-hz-real", &real_freq))
+			real_freq = opp_freq;
+		if (of_property_read_u64(node, "opp-core-mask", &core_mask))
+			core_mask =
+				kbdev->gpu_props.props.raw_props.shader_present;
+		core_count_p = of_get_property(node, "opp-core-count", NULL);
+		if (core_count_p) {
+			u64 remaining_core_mask =
+				kbdev->gpu_props.props.raw_props.shader_present;
+			int core_count = be32_to_cpup(core_count_p);
+
+			core_mask = 0;
+
+			for (; core_count > 0; core_count--) {
+				int core = ffs(remaining_core_mask);
+
+				if (!core) {
+					dev_err(kbdev->dev, "OPP has more cores than GPU\n");
+					return -ENODEV;
+				}
+
+				core_mask |= (1ull << (core-1));
+				remaining_core_mask &= ~(1ull << (core-1));
 			}
 		}
-	} else if (val == DEVFREQ_POSTCHANGE &&
-		   new_rate < kbdev->gpu_limit_freq) {
-		for (i = 0; i < MAX_CLUSTERS; i++) {
-			if (cpu_clipped_freq[i] != UINT_MAX) {
-				/* recover  policy->max  right now */
-				cpu_clipped_freq[i] = UINT_MAX;
-				if (cpumask_empty(&allowed_cpus[i]))
-					goto out;
-				cpu = cpumask_any_and(&allowed_cpus[i],
-						      cpu_online_mask);
-				if (cpu >= nr_cpu_ids)
-					goto out;
-				cpufreq_update_policy(cpu);
-			}
+
+		if (!core_mask) {
+			dev_err(kbdev->dev, "OPP has invalid core mask of 0\n");
+			return -ENODEV;
 		}
+
+		kbdev->opp_table[i].opp_freq = opp_freq;
+		kbdev->opp_table[i].real_freq = real_freq;
+		kbdev->opp_table[i].core_mask = core_mask;
+
+		dev_info(kbdev->dev, "OPP %d : opp_freq=%llu real_freq=%llu core_mask=%llx\n",
+				i, opp_freq, real_freq, core_mask);
+
+		i++;
 	}
 
-out:
+	kbdev->num_opps = i;
 
-	return NOTIFY_OK;
+	return 0;
 }
 
 int kbase_devfreq_init(struct kbase_device *kbdev)
@@ -264,10 +311,13 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
 	struct devfreq_dev_profile *dp;
 	int err;
 
-	if (!kbdev->clock)
+	if (!kbdev->clock) {
+		dev_err(kbdev->dev, "Clock not available for devfreq\n");
 		return -ENODEV;
+	}
 
 	kbdev->current_freq = clk_get_rate(kbdev->clock);
+	kbdev->current_nominal_freq = kbdev->current_freq;
 
 	dp = &kbdev->devfreq_profile;
 
@@ -281,12 +331,20 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
 	if (kbase_devfreq_init_freq_table(kbdev, dp))
 		return -EFAULT;
 
+	err = kbase_devfreq_init_core_mask_table(kbdev);
+	if (err)
+		return err;
+
 	kbdev->devfreq = devfreq_add_device(kbdev->dev, dp,
 				"simple_ondemand", NULL);
 	if (IS_ERR(kbdev->devfreq)) {
 		kbase_devfreq_term_freq_table(kbdev);
 		return PTR_ERR(kbdev->devfreq);
 	}
+
+	/* devfreq_add_device only copies a few of kbdev->dev's fields, so
+	 * set drvdata explicitly so IPA models can access kbdev. */
+	dev_set_drvdata(&kbdev->devfreq->dev, kbdev);
 
 	err = devfreq_register_opp_notifier(kbdev->dev, kbdev->devfreq);
 	if (err) {
@@ -295,47 +353,23 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
 		goto opp_notifier_failed;
 	}
 
-	if (of_property_read_u32(kbdev->dev->of_node, "cpu-limit-freq",
-				 &kbdev->cpu_limit_freq)) {
-		dev_err(kbdev->dev, "Failed to get prop cpu-limit-freq\n");
-		kbdev->cpu_limit_freq = UINT_MAX;
-	}
-	if (of_property_read_u32(kbdev->dev->of_node, "gpu-limit-freq",
-				 &kbdev->gpu_limit_freq)) {
-		dev_err(kbdev->dev, "Failed to get prop gpu-limit-freq\n");
-		kbdev->gpu_limit_freq = UINT_MAX;
-	}
-
-	kbdev->gpu_trans_nb.notifier_call = kbase_devfreq_trans_notifier;
-	err = devfreq_register_notifier(kbdev->devfreq, &kbdev->gpu_trans_nb,
-					DEVFREQ_TRANSITION_NOTIFIER);
-	if (err)
-		dev_err(kbdev->dev, "register gpu trans notifier (%d)\n", err);
-
 #ifdef CONFIG_DEVFREQ_THERMAL
-	err = kbase_power_model_simple_init(kbdev);
-	if (err && err != -ENODEV && err != -EPROBE_DEFER) {
+	err = kbase_ipa_init(kbdev);
+	if (err) {
+		dev_err(kbdev->dev, "IPA initialization failed\n");
+		goto cooling_failed;
+	}
+
+	kbdev->devfreq_cooling = of_devfreq_cooling_register_power(
+			kbdev->dev->of_node,
+			kbdev->devfreq,
+			&kbase_ipa_power_model_ops);
+	if (IS_ERR_OR_NULL(kbdev->devfreq_cooling)) {
+		err = PTR_ERR(kbdev->devfreq_cooling);
 		dev_err(kbdev->dev,
-			"Failed to initialize simple power model (%d)\n",
+			"Failed to register cooling device (%d)\n",
 			err);
 		goto cooling_failed;
-	}
-	if (err == -EPROBE_DEFER)
-		goto cooling_failed;
-	if (err != -ENODEV) {
-		kbdev->devfreq_cooling = of_devfreq_cooling_register_power(
-				kbdev->dev->of_node,
-				kbdev->devfreq,
-				&power_model_simple_ops);
-		if (IS_ERR_OR_NULL(kbdev->devfreq_cooling)) {
-			err = PTR_ERR(kbdev->devfreq_cooling);
-			dev_err(kbdev->dev,
-				"Failed to register cooling device (%d)\n",
-				err);
-			goto cooling_failed;
-		}
-	} else {
-		err = 0;
 	}
 #endif
 
@@ -363,6 +397,8 @@ void kbase_devfreq_term(struct kbase_device *kbdev)
 #ifdef CONFIG_DEVFREQ_THERMAL
 	if (kbdev->devfreq_cooling)
 		devfreq_cooling_unregister(kbdev->devfreq_cooling);
+
+	kbase_ipa_term(kbdev);
 #endif
 
 	devfreq_unregister_opp_notifier(kbdev->dev, kbdev->devfreq);
@@ -372,58 +408,6 @@ void kbase_devfreq_term(struct kbase_device *kbdev)
 		dev_err(kbdev->dev, "Failed to terminate devfreq (%d)\n", err);
 	else
 		kbdev->devfreq = NULL;
+
+	kfree(kbdev->opp_table);
 }
-
-static int kbase_cpufreq_policy_notifier(struct notifier_block *nb,
-					 unsigned long val, void *data)
-{
-	struct cpufreq_policy *policy = data;
-	int i;
-
-	if (val == CPUFREQ_START) {
-		for (i = 0; i < MAX_CLUSTERS; i++) {
-			if (cpumask_test_cpu(policy->cpu,
-					     &allowed_cpus[i]))
-				break;
-			if (cpumask_empty(&allowed_cpus[i])) {
-				cpumask_copy(&allowed_cpus[i],
-					     policy->related_cpus);
-				break;
-			}
-		}
-		goto out;
-	}
-
-	if (val != CPUFREQ_ADJUST)
-		goto out;
-
-	for (i = 0; i < MAX_CLUSTERS; i++) {
-		if (cpumask_test_cpu(policy->cpu, &allowed_cpus[i]))
-			break;
-	}
-	if (i == MAX_CLUSTERS)
-		goto out;
-
-	if (policy->max > cpu_clipped_freq[i])
-		cpufreq_verify_within_limits(policy, 0, cpu_clipped_freq[i]);
-
-	cpu_max_freq[i] = policy->max;
-	pr_debug("cluster%d max=%u, gpu limit=%u\n", i, cpu_max_freq[i],
-		 cpu_clipped_freq[i]);
-
-out:
-
-	return NOTIFY_OK;
-}
-
-static struct notifier_block notifier_policy_block = {
-	.notifier_call = kbase_cpufreq_policy_notifier
-};
-
-static int __init kbase_cpufreq_init(void)
-{
-	return cpufreq_register_notifier(&notifier_policy_block,
-					 CPUFREQ_POLICY_NOTIFIER);
-}
-
-subsys_initcall(kbase_cpufreq_init);

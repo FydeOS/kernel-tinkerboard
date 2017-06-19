@@ -1,6 +1,6 @@
 /*
  *
- * (C) COPYRIGHT 2010-2016 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2010-2017 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -151,17 +151,30 @@ struct kbase_mem_phy_alloc {
 		} alias;
 		/* Used by type = (KBASE_MEM_TYPE_NATIVE, KBASE_MEM_TYPE_TB) */
 		struct kbase_context *kctx;
-		struct {
+		struct kbase_alloc_import_user_buf {
 			unsigned long address;
 			unsigned long size;
 			unsigned long nr_pages;
 			struct page **pages;
-			unsigned int current_mapping_usage_count;
+			/* top bit (1<<31) of current_mapping_usage_count
+			 * specifies that this import was pinned on import
+			 * See PINNED_ON_IMPORT
+			 */
+			u32 current_mapping_usage_count;
 			struct mm_struct *mm;
 			dma_addr_t *dma_addrs;
 		} user_buf;
 	} imported;
 };
+
+/* The top bit of kbase_alloc_import_user_buf::current_mapping_usage_count is
+ * used to signify that a buffer was pinned when it was imported. Since the
+ * reference count is limited by the number of atoms that can be submitted at
+ * once there should be no danger of overflowing into this bit.
+ * Stealing the top bit also has the benefit that
+ * current_mapping_usage_count != 0 if and only if the buffer is mapped.
+ */
+#define PINNED_ON_IMPORT	(1<<31)
 
 static inline void kbase_mem_phy_alloc_gpu_mapped(struct kbase_mem_phy_alloc *alloc)
 {
@@ -246,9 +259,6 @@ struct kbase_va_region {
 /* CPU read access */
 #define KBASE_REG_CPU_RD            (1ul<<14)
 
-/* Aligned for GPU EX in SAME_VA */
-#define KBASE_REG_ALIGNED           (1ul<<15)
-
 /* Index of chosen MEMATTR for this region (0..7) */
 #define KBASE_REG_MEMATTR_MASK      (7ul << 16)
 #define KBASE_REG_MEMATTR_INDEX(x)  (((x) & 7) << 16)
@@ -257,6 +267,9 @@ struct kbase_va_region {
 #define KBASE_REG_SECURE            (1ul << 19)
 
 #define KBASE_REG_DONT_NEED         (1ul << 20)
+
+/* Imported buffer is padded? */
+#define KBASE_REG_IMPORT_PAD        (1ul << 21)
 
 #define KBASE_REG_ZONE_SAME_VA      KBASE_REG_ZONE(0)
 
@@ -398,7 +411,8 @@ static inline int kbase_reg_prepare_native(struct kbase_va_region *reg,
 		return -ENOMEM;
 	reg->cpu_alloc->imported.kctx = kctx;
 	INIT_LIST_HEAD(&reg->cpu_alloc->evict_node);
-	if (kctx->infinite_cache_active && (reg->flags & KBASE_REG_CPU_CACHED)) {
+	if (kbase_ctx_flag(kctx, KCTX_INFINITE_CACHE)
+	    && (reg->flags & KBASE_REG_CPU_CACHED)) {
 		reg->gpu_alloc = kbase_alloc_create(reg->nr_pages,
 				KBASE_MEM_TYPE_NATIVE);
 		reg->gpu_alloc->imported.kctx = kctx;
@@ -485,7 +499,7 @@ void kbase_mem_pool_term(struct kbase_mem_pool *pool);
  * 1. If there are free pages in the pool, allocate a page from @pool.
  * 2. Otherwise, if @next_pool is not NULL and has free pages, allocate a page
  *    from @next_pool.
- * 3. Finally, allocate a page from the kernel.
+ * 3. Return NULL if no memory in the pool
  *
  * Return: Pointer to allocated page, or NULL if allocation failed.
  */
@@ -571,18 +585,38 @@ static inline size_t kbase_mem_pool_max_size(struct kbase_mem_pool *pool)
 void kbase_mem_pool_set_max_size(struct kbase_mem_pool *pool, size_t max_size);
 
 /**
+ * kbase_mem_pool_grow - Grow the pool
+ * @pool:       Memory pool to grow
+ * @nr_to_grow: Number of pages to add to the pool
+ *
+ * Adds @nr_to_grow pages to the pool. Note that this may cause the pool to
+ * become larger than the maximum size specified.
+ *
+ * Returns: 0 on success, -ENOMEM if unable to allocate sufficent pages
+ */
+int kbase_mem_pool_grow(struct kbase_mem_pool *pool, size_t nr_to_grow);
+
+/**
  * kbase_mem_pool_trim - Grow or shrink the pool to a new size
  * @pool:     Memory pool to trim
  * @new_size: New number of pages in the pool
  *
  * If @new_size > @cur_size, fill the pool with new pages from the kernel, but
- * not above @max_size.
+ * not above the max_size for the pool.
  * If @new_size < @cur_size, shrink the pool by freeing pages to the kernel.
- *
- * Return: The new size of the pool
  */
-size_t kbase_mem_pool_trim(struct kbase_mem_pool *pool, size_t new_size);
+void kbase_mem_pool_trim(struct kbase_mem_pool *pool, size_t new_size);
 
+/*
+ * kbase_mem_alloc_page - Allocate a new page for a device
+ * @kbdev: The kbase device
+ *
+ * Most uses should use kbase_mem_pool_alloc to allocate a page. However that
+ * function can fail in the event the pool is empty.
+ *
+ * Return: A new page or NULL if no memory
+ */
+struct page *kbase_mem_alloc_page(struct kbase_device *kbdev);
 
 int kbase_region_tracker_init(struct kbase_context *kctx);
 int kbase_region_tracker_init_jit(struct kbase_context *kctx, u64 jit_va_pages);
@@ -603,7 +637,20 @@ int kbase_add_va_region(struct kbase_context *kctx, struct kbase_va_region *reg,
 
 bool kbase_check_alloc_flags(unsigned long flags);
 bool kbase_check_import_flags(unsigned long flags);
-void kbase_update_region_flags(struct kbase_context *kctx,
+
+/**
+ * kbase_update_region_flags - Convert user space flags to kernel region flags
+ *
+ * @kctx:  kbase context
+ * @reg:   The region to update the flags on
+ * @flags: The flags passed from user space
+ *
+ * The user space flag BASE_MEM_COHERENT_SYSTEM_REQUIRED will be rejected and
+ * this function will fail if the system does not support system coherency.
+ *
+ * Return: 0 if successful, -EINVAL if the flags are not supported
+ */
+int kbase_update_region_flags(struct kbase_context *kctx,
 		struct kbase_va_region *reg, unsigned long flags);
 
 void kbase_gpu_vm_lock(struct kbase_context *kctx);
@@ -616,6 +663,9 @@ void kbase_mmu_term(struct kbase_context *kctx);
 
 phys_addr_t kbase_mmu_alloc_pgd(struct kbase_context *kctx);
 void kbase_mmu_free_pgd(struct kbase_context *kctx);
+int kbase_mmu_insert_pages_no_flush(struct kbase_context *kctx, u64 vpfn,
+				  phys_addr_t *phys, size_t nr,
+				  unsigned long flags);
 int kbase_mmu_insert_pages(struct kbase_context *kctx, u64 vpfn,
 				  phys_addr_t *phys, size_t nr,
 				  unsigned long flags);
@@ -642,26 +692,34 @@ int kbase_gpu_munmap(struct kbase_context *kctx, struct kbase_va_region *reg);
 
 /**
  * The caller has the following locking conditions:
- * - It must hold kbase_as::transaction_mutex on kctx's address space
- * - It must hold the kbasep_js_device_data::runpool_irq::lock
+ * - It must hold kbase_device->mmu_hw_mutex
+ * - It must hold the hwaccess_lock
  */
 void kbase_mmu_update(struct kbase_context *kctx);
 
 /**
+ * kbase_mmu_disable() - Disable the MMU for a previously active kbase context.
+ * @kctx:	Kbase context
+ *
+ * Disable and perform the required cache maintenance to remove the all
+ * data from provided kbase context from the GPU caches.
+ *
  * The caller has the following locking conditions:
- * - It must hold kbase_as::transaction_mutex on kctx's address space
- * - It must hold the kbasep_js_device_data::runpool_irq::lock
+ * - It must hold kbase_device->mmu_hw_mutex
+ * - It must hold the hwaccess_lock
  */
 void kbase_mmu_disable(struct kbase_context *kctx);
 
 /**
- * kbase_mmu_disable_as() - set the MMU in unmapped mode for an address space.
- *
+ * kbase_mmu_disable_as() - Set the MMU to unmapped mode for the specified
+ * address space.
  * @kbdev:	Kbase device
- * @as_nr:	Number of the address space for which the MMU
- *		should be set in unmapped mode.
+ * @as_nr:	The address space number to set to unmapped.
  *
- * The caller must hold kbdev->as[as_nr].transaction_mutex.
+ * This function must only be called during reset/power-up and it used to
+ * ensure the registers are in a known state.
+ *
+ * The caller must hold kbdev->mmu_hw_mutex.
  */
 void kbase_mmu_disable_as(struct kbase_device *kbdev, int as_nr);
 
@@ -684,7 +742,16 @@ void kbase_mmu_interrupt(struct kbase_device *kbdev, u32 irq_stat);
  */
 void *kbase_mmu_dump(struct kbase_context *kctx, int nr_pages);
 
-int kbase_sync_now(struct kbase_context *kctx, struct base_syncset *syncset);
+/**
+ * kbase_sync_now - Perform cache maintenance on a memory region
+ *
+ * @kctx: The kbase context of the region
+ * @sset: A syncset structure describing the region and direction of the
+ *        synchronisation required
+ *
+ * Return: 0 on success or error code
+ */
+int kbase_sync_now(struct kbase_context *kctx, struct basep_syncset *sset);
 void kbase_sync_single(struct kbase_context *kctx, phys_addr_t cpu_pa,
 		phys_addr_t gpu_pa, off_t offset, size_t size,
 		enum kbase_sync_type sync_fn);
@@ -872,11 +939,13 @@ void kbase_sync_single_for_device(struct kbase_device *kbdev, dma_addr_t handle,
 void kbase_sync_single_for_cpu(struct kbase_device *kbdev, dma_addr_t handle,
 		size_t size, enum dma_data_direction dir);
 
+#ifdef CONFIG_DEBUG_FS
 /**
- * kbase_jit_debugfs_add - Add per context debugfs entry for JIT.
+ * kbase_jit_debugfs_init - Add per context debugfs entry for JIT.
  * @kctx: kbase context
  */
-void kbase_jit_debugfs_add(struct kbase_context *kctx);
+void kbase_jit_debugfs_init(struct kbase_context *kctx);
+#endif /* CONFIG_DEBUG_FS */
 
 /**
  * kbase_jit_init - Initialize the JIT memory pool management
@@ -946,17 +1015,7 @@ struct kbase_mem_phy_alloc *kbase_map_external_resource(
 		struct mm_struct *locked_mm
 #ifdef CONFIG_KDS
 		, u32 *kds_res_count, struct kds_resource **kds_resources,
-		unsigned long *kds_access_bitmap
-#endif
-#ifdef CONFIG_DRM_DMA_SYNC
-		, unsigned int *num_resvs, struct reservation_object **resvs,
-		unsigned long *excl_resvs_bitmap
-#endif
-#if defined(CONFIG_KDS) || defined(CONFIG_DRM_DMA_SYNC)
-		, bool exclusive
-#ifdef CONFIG_SYNC
-		, bool implicit_sync
-#endif
+		unsigned long *kds_access_bitmap, bool exclusive
 #endif
 		);
 

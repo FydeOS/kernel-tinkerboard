@@ -1,6 +1,6 @@
 /*
  *
- * (C) COPYRIGHT 2010-2016 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2010-2017 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -30,6 +30,7 @@
 
 #include <mali_kbase.h>
 #include <mali_kbase_defs.h>
+#include <mali_kbase_hwaccess_instr.h>
 #include <mali_kbase_hw.h>
 #include <mali_kbase_config_defaults.h>
 
@@ -81,7 +82,6 @@ static int kbase_device_as_init(struct kbase_device *kbdev, int i)
 	if (!kbdev->as[i].pf_wq)
 		return -EINVAL;
 
-	mutex_init(&kbdev->as[i].transaction_mutex);
 	INIT_WORK(&kbdev->as[i].work_pagefault, page_fault_worker);
 	INIT_WORK(&kbdev->as[i].work_busfault, bus_fault_worker);
 
@@ -150,6 +150,7 @@ int kbase_device_init(struct kbase_device * const kbdev)
 #endif /* CONFIG_ARM64 */
 
 	spin_lock_init(&kbdev->mmu_mask_change);
+	mutex_init(&kbdev->mmu_hw_mutex);
 #ifdef CONFIG_ARM64
 	kbdev->cci_snoop_enabled = false;
 	np = kbdev->dev->of_node;
@@ -244,11 +245,10 @@ int kbase_device_init(struct kbase_device * const kbdev)
 
 	kbdev->reset_timeout_ms = DEFAULT_RESET_TIMEOUT_MS;
 
-#ifdef CONFIG_MALI_GPU_MMU_AARCH64
-	kbdev->mmu_mode = kbase_mmu_mode_get_aarch64();
-#else
-	kbdev->mmu_mode = kbase_mmu_mode_get_lpae();
-#endif /* CONFIG_MALI_GPU_MMU_AARCH64 */
+	if (kbase_hw_has_feature(kbdev, BASE_HW_FEATURE_AARCH64_MMU))
+		kbdev->mmu_mode = kbase_mmu_mode_get_aarch64();
+	else
+		kbdev->mmu_mode = kbase_mmu_mode_get_lpae();
 
 #ifdef CONFIG_MALI_DEBUG
 	init_waitqueue_head(&kbdev->driver_inactive_wait);
@@ -653,28 +653,6 @@ void kbase_set_profiling_control(struct kbase_device *kbdev, u32 control, u32 va
 		dev_err(kbdev->dev, "Profiling control %d not found\n", control);
 		break;
 	}
-}
-
-u32 kbase_get_profiling_control(struct kbase_device *kbdev, u32 control)
-{
-	u32 ret_value = 0;
-
-	switch (control) {
-	case FBDUMP_CONTROL_ENABLE:
-		/* fall through */
-	case FBDUMP_CONTROL_RATE:
-		/* fall through */
-	case SW_COUNTER_ENABLE:
-		/* fall through */
-	case FBDUMP_CONTROL_RESIZE_FACTOR:
-		ret_value = kbdev->kbase_profiling_controls[control];
-		break;
-	default:
-		dev_err(kbdev->dev, "Profiling control %d not found\n", control);
-		break;
-	}
-
-	return ret_value;
 }
 
 /*

@@ -1,6 +1,6 @@
 /*
  *
- * (C) COPYRIGHT 2014-2015 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2014-2017 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -71,10 +71,3 @@
 #define PLATFORM_FUNCS (NULL)
 
 extern struct kbase_pm_callback_conf pm_callbacks;
-
-/**
- * Secure mode switch
- *
- * Attached value: pointer to @ref kbase_secure_ops
- */
-#define SECURE_CALLBACKS (NULL)

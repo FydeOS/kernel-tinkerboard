@@ -1,6 +1,6 @@
 /*
  *
- * (C) COPYRIGHT 2010-2016 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2010-2017 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -61,6 +61,7 @@
 #define LATEST_FLUSH            0x038	/* (RO) */
 
 #define GROUPS_L2_COHERENT      (1 << 0)	/* Cores groups are l2 coherent */
+#define GPU_DBGEN               (1 << 8)	/* DBGEN wire status */
 
 #define GPU_FAULTSTATUS         0x03C	/* (RO) GPU exception type and fault status */
 #define GPU_FAULTADDRESS_LO     0x040	/* (RO) GPU exception fault address, low word */
@@ -122,6 +123,9 @@
 #define L2_PRESENT_LO           0x120	/* (RO) Level 2 cache present bitmap, low word */
 #define L2_PRESENT_HI           0x124	/* (RO) Level 2 cache present bitmap, high word */
 
+#define STACK_PRESENT_LO        0xE00   /* (RO) Core stack present bitmap, low word */
+#define STACK_PRESENT_HI        0xE04   /* (RO) Core stack present bitmap, high word */
+
 
 #define SHADER_READY_LO         0x140	/* (RO) Shader core ready bitmap, low word */
 #define SHADER_READY_HI         0x144	/* (RO) Shader core ready bitmap, high word */
@@ -131,6 +135,9 @@
 
 #define L2_READY_LO             0x160	/* (RO) Level 2 cache ready bitmap, low word */
 #define L2_READY_HI             0x164	/* (RO) Level 2 cache ready bitmap, high word */
+
+#define STACK_READY_LO          0xE10   /* (RO) Core stack ready bitmap, low word */
+#define STACK_READY_HI          0xE14   /* (RO) Core stack ready bitmap, high word */
 
 
 #define SHADER_PWRON_LO         0x180	/* (WO) Shader core power on bitmap, low word */
@@ -142,6 +149,10 @@
 #define L2_PWRON_LO             0x1A0	/* (WO) Level 2 cache power on bitmap, low word */
 #define L2_PWRON_HI             0x1A4	/* (WO) Level 2 cache power on bitmap, high word */
 
+#define STACK_PWRON_LO          0xE20   /* (RO) Core stack power on bitmap, low word */
+#define STACK_PWRON_HI          0xE24   /* (RO) Core stack power on bitmap, high word */
+
+
 #define SHADER_PWROFF_LO        0x1C0	/* (WO) Shader core power off bitmap, low word */
 #define SHADER_PWROFF_HI        0x1C4	/* (WO) Shader core power off bitmap, high word */
 
@@ -151,6 +162,10 @@
 #define L2_PWROFF_LO            0x1E0	/* (WO) Level 2 cache power off bitmap, low word */
 #define L2_PWROFF_HI            0x1E4	/* (WO) Level 2 cache power off bitmap, high word */
 
+#define STACK_PWROFF_LO         0xE30   /* (RO) Core stack power off bitmap, low word */
+#define STACK_PRWOFF_HI         0xE34   /* (RO) Core stack power off bitmap, high word */
+
+
 #define SHADER_PWRTRANS_LO      0x200	/* (RO) Shader core power transition bitmap, low word */
 #define SHADER_PWRTRANS_HI      0x204	/* (RO) Shader core power transition bitmap, high word */
 
@@ -159,6 +174,10 @@
 
 #define L2_PWRTRANS_LO          0x220	/* (RO) Level 2 cache power transition bitmap, low word */
 #define L2_PWRTRANS_HI          0x224	/* (RO) Level 2 cache power transition bitmap, high word */
+
+#define STACK_PWRTRANS_LO       0xE40   /* (RO) Core stack power transition bitmap, low word */
+#define STACK_PRWTRANS_HI       0xE44   /* (RO) Core stack power transition bitmap, high word */
+
 
 #define SHADER_PWRACTIVE_LO     0x240	/* (RO) Shader core active bitmap, low word */
 #define SHADER_PWRACTIVE_HI     0x244	/* (RO) Shader core active bitmap, high word */
@@ -214,6 +233,8 @@
 #define JS_AFFINITY_LO         0x10	/* (RO) Core affinity mask for job slot n, low word */
 #define JS_AFFINITY_HI         0x14	/* (RO) Core affinity mask for job slot n, high word */
 #define JS_CONFIG              0x18	/* (RO) Configuration settings for job slot n */
+#define JS_XAFFINITY           0x1C	/* (RO) Extended affinity mask for job
+					   slot n */
 
 #define JS_COMMAND             0x20	/* (WO) Command register for job slot n */
 #define JS_STATUS              0x24	/* (RO) Status register for job slot n */
@@ -224,6 +245,8 @@
 #define JS_AFFINITY_NEXT_LO    0x50	/* (RW) Next core affinity mask for job slot n, low word */
 #define JS_AFFINITY_NEXT_HI    0x54	/* (RW) Next core affinity mask for job slot n, high word */
 #define JS_CONFIG_NEXT         0x58	/* (RW) Next configuration settings for job slot n */
+#define JS_XAFFINITY_NEXT      0x5C	/* (RW) Next extended affinity mask for
+					   job slot n */
 
 #define JS_COMMAND_NEXT        0x60	/* (RW) Next command register for job slot n */
 
@@ -393,6 +416,11 @@
 #define JS_CONFIG_ENABLE_FLUSH_REDUCTION       (1u << 14)
 #define JS_CONFIG_DISABLE_DESCRIPTOR_WR_BK     (1u << 15)
 #define JS_CONFIG_THREAD_PRI(n)                ((n) << 16)
+
+/* JS_XAFFINITY register values */
+#define JS_XAFFINITY_XAFFINITY_ENABLE (1u << 0)
+#define JS_XAFFINITY_TILER_ENABLE     (1u << 8)
+#define JS_XAFFINITY_CACHE_ENABLE     (1u << 16)
 
 /* JS_STATUS register values */
 
@@ -566,5 +594,18 @@
 #define TC_CLOCK_GATE_OVERRIDE      (1ul << 0)
 
 /* End TILER_CONFIG register */
+
+/* JM_CONFIG register */
+
+#define JM_TIMESTAMP_OVERRIDE  (1ul << 0)
+#define JM_CLOCK_GATE_OVERRIDE (1ul << 1)
+#define JM_JOB_THROTTLE_ENABLE (1ul << 2)
+#define JM_JOB_THROTTLE_LIMIT_SHIFT (3)
+#define JM_MAX_JOB_THROTTLE_LIMIT (0x3F)
+#define JM_FORCE_COHERENCY_FEATURES_SHIFT (2)
+#define JM_IDVS_GROUP_SIZE_SHIFT (16)
+#define JM_MAX_IDVS_GROUP_SIZE (0x3F)
+/* End JM_CONFIG register */
+
 
 #endif /* _MIDGARD_REGMAP_H_ */
